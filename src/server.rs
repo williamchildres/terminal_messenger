@@ -99,7 +99,9 @@ async fn main() {
 
                         let message = format!("{}: {}", sender_name, text);
                         println!("{}", message);
-                        tx_clone.send(message).unwrap();
+                        if let Err(e) = tx_clone.send(message) {
+                            eprintln!("Failed to send message: {:?}", e);
+                        }
                     }
                 }
             });
