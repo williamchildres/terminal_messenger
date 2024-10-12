@@ -68,7 +68,10 @@ async fn main() {
             let tx_clone = tx.clone();
             let client_send = tokio::spawn(async move {
                 while let Ok(message) = rx.recv().await {
-                    ws_tx.send(Message::Text(message)).await.unwrap();
+                    // Gracefully handle error, instead of unwrap -> avoids panic
+                    if let Err(e) = ws_tx.send(Message::Text(message)).await {
+                        eprintln!("Failed to send message: {:?}", e);
+                    }
                 }
             });
 
