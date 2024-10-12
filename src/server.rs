@@ -112,6 +112,7 @@ async fn handle_command(
             /help - Show available commands
             /name <your_name> - Set your nickname
             /list - List all connected users
+            /whisper <name> <message> - Send a private message to the user with the specified name
             "#
                 .to_string(),
             )
@@ -167,6 +168,52 @@ async fn handle_command(
             send_to_client(client_id, clients, format!("Connected users: {}", names)).await;
         }
 
+        Some(cmd) if cmd.starts_with("dm") => {
+            let args: Vec<&str> = cmd[2..].trim().splitn(2, ' ').collect();
+            if args.len() != 2 {
+                send_to_client(
+                    client_id,
+                    clients,
+                    "Usage: /whisper <name> <message>".to_string(),
+                )
+                .await;
+            } else {
+                let recipient_name = args[0];
+                let message = args[1];
+
+                let recipient = {
+                    let clients_guard = clients.lock().await;
+                    clients_guard
+                        .iter()
+                        .find(|(_, (name, _))| name.as_deref() == Some(recipient_name))
+                        .map(|(_, (_, tx))| tx.clone())
+                };
+
+                match recipient {
+                    Some(tx) => {
+                        tx.send(format!(
+                            "(Private message from {}): {}",
+                            recipient_name, message
+                        ))
+                        .unwrap();
+                        send_to_client(
+                            client_id,
+                            clients,
+                            format!("(Private message to {}): {}", recipient_name, message),
+                        )
+                        .await;
+                    }
+                    None => {
+                        send_to_client(
+                            client_id,
+                            clients,
+                            format!("User '{}' not found.", recipient_name),
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
         _ => {
             send_to_client(
                 client_id,
