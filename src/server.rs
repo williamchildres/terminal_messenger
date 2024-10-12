@@ -112,7 +112,7 @@ async fn handle_command(
             /help - Show available commands
             /name <your_name> - Set your nickname
             /list - List all connected users
-            /whisper <name> <message> - Send a private message to the user with the specified name
+            /dm <name> <message> - Send a private message to the user with the specified name
             "#
                 .to_string(),
             )
