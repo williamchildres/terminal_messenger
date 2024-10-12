@@ -35,7 +35,10 @@ async fn main() {
     let write_ws = tokio::spawn(async move {
         let mut lines = stdin.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            write.send(Message::Text(line)).await.unwrap();
+            if let Err(e) = write.send(Message::Text(line)).await {
+                eprintln!("Failed to send message: {:?}", e);
+                break;
+            }
         }
     });
 
