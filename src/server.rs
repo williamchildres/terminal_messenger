@@ -20,7 +20,7 @@ async fn main() {
     let (tx, _rx) = tokio::sync::broadcast::channel(100);
 
     // Create an Arc Mutex protected vector for storing client identifiers (IP addresses)
-    let clients = Arc::new(Mutex::new(Vec::new()));
+    let clients = Arc::new(Mutex::new(Vec::<String>::new()));
 
     // Start accepting incoming connections in an infinite loop
     while let Ok((stream, _)) = listener.accept().await {
