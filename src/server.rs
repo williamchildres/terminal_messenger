@@ -19,8 +19,11 @@ async fn main() {
     // Create a broadcast channel with a capacity of 100 messages
     let (tx, _rx) = tokio::sync::broadcast::channel(100);
 
-    // Create an Arc Mutex protected vector for storing client identifiers (IP addresses)
-    let clients = Arc::new(Mutex::new(Vec::<String>::new()));
+    // Create an Arc Mutex protected map for storing client identifiers (IP addresses) and their nicknames.
+    let clients = Arc::new(Mutex::new(std::collections::HashMap::<
+        String,
+        Option<String>,
+    >::new()));
 
     // Start accepting incoming connections in an infinite loop
     while let Ok((stream, _)) = listener.accept().await {
@@ -55,7 +58,10 @@ async fn main() {
 
             // Add this client's ID into shared vector of clients (safely by locking mutex)
             let clients_guard = clients.clone();
-            clients_guard.lock().unwrap().push(client_id.clone()); // Cloned here to use later
+            clients_guard
+                .lock()
+                .unwrap()
+                .insert(client_id.clone(), None); // Cloned here to use later
 
             // Spawn a task for receiving broadcast messages and sending them over WebSocket to
             // this specific client
@@ -72,9 +78,26 @@ async fn main() {
             let client_id_receive = client_id.clone();
             let client_receive = tokio::spawn(async move {
                 while let Some(Ok(Message::Text(text))) = ws_rx.next().await {
-                    let message = format!("{}: {}", client_id_receive, text);
-                    println!("{}", message);
-                    tx_clone.send(message).unwrap();
+                    // Check if message starts with "/name"
+                    if text.starts_with("/name") {
+                        let nickname = text[5..].trim().to_string();
+                        clients_guard
+                            .lock()
+                            .unwrap()
+                            .insert(client_id.clone(), Some(nickname));
+                    } else {
+                        let clients_guard = clients.clone();
+                        let mut sender_name = String::from("Unknown");
+
+                        // Check if user has a set nickname
+                        if let Some(nickname) = &clients_guard.lock().unwrap()[&client_id] {
+                            sender_name = nickname.clone();
+                        }
+
+                        let message = format!("{}: {}", sender_name, text);
+                        println!("{}", message);
+                        tx_clone.send(message).unwrap();
+                    }
                 }
             });
 
@@ -86,7 +109,7 @@ async fn main() {
             };
 
             // Log that client has disconnected
-            println!("Client {} disconnected", client_id);
+            println!("Client {} disconnected", client_id_receive);
         });
     }
 }
