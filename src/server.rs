@@ -1,123 +1,189 @@
-// Import necessary modules from tokio, tokio_tungstenite, and std
 use futures_util::{SinkExt, StreamExt};
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 
-// Define the asynchronous main function
 #[tokio::main]
 async fn main() {
-    // Bind the server to the local address and port 8080
     let addr = "127.0.0.1:8080";
-
-    // Create a TCP listener that listens for incoming connections on the specified address
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
-
-    // Print out a message indicating the server is listening on the specified address
     println!("Server listening on {}", addr);
 
-    // Create a broadcast channel with a capacity of 100 messages
-    let (tx, _rx) = tokio::sync::broadcast::channel(100);
-
-    // Create an Arc Mutex protected map for storing client identifiers (IP addresses) and their nicknames.
-    let clients = Arc::new(Mutex::new(std::collections::HashMap::<
+    let clients = Arc::new(Mutex::new(HashMap::<
         String,
-        Option<String>,
+        (Option<String>, mpsc::UnboundedSender<String>),
     >::new()));
+    let history = Arc::new(Mutex::new(VecDeque::<String>::with_capacity(100)));
 
-    // Start accepting incoming connections in an infinite loop
     while let Ok((stream, _)) = listener.accept().await {
-        // Clone the transmitter part of the broadcast channel and clients list for each new
-        // connection
-        let tx = tx.clone();
         let clients = clients.clone();
+        let history = history.clone();
 
-        // Spawn a new task for each new connection using Tokio's async runtime
         tokio::spawn(async move {
-            // Upgrade TCP stream into WebSocket stream using async handshake process
-            let ws_stream = accept_async(stream)
-                .await
-                .expect("Error during the WebSocket handshake");
+            let ws_stream: WebSocketStream<_> =
+                accept_async(stream).await.expect("Error during handshake");
+            // Get client IP
+            let client_id = format!("{}", ws_stream.get_ref().peer_addr().unwrap());
 
-            // Get client IP address from TCP Stream underlying WebSocket strream and format it
-            // into string as client identifiers
-            let peer_addr = ws_stream
-                .get_ref()
-                .peer_addr()
-                .expect("Connected streams should have a peer address");
-            let client_id = format!("{}", peer_addr);
+            // Each client gets its own tx/rx
+            let (tx_original, mut rx) = mpsc::unbounded_channel();
 
-            // Log new client connection
-            println!("New client connected: {}", client_id);
+            // Insert client with no name initially
+            {
+                let mut clients_guard = clients.lock().await;
+                clients_guard.insert(client_id.clone(), (None, tx_original.clone()));
+            }
 
-            // Split the WebSocket stream into a sender and receiver part
-            let (mut ws_tx, mut ws_rx) = ws_stream.split();
+            // Send the message history to the new client
+            for message in history.lock().await.iter() {
+                tx_original.send(message.clone()).unwrap();
+            }
 
-            // Subscribe to the broadcast channel to receive message
-            let mut rx = tx.subscribe();
+            /* Split the socket into a sender and receiver */
+            let (mut outgoing, mut incoming) = ws_stream.split();
 
-            // Add this client's ID into shared vector of clients (safely by locking mutex)
-            let clients_guard = clients.clone();
-            clients_guard
-                .lock()
-                .unwrap()
-                .insert(client_id.clone(), None); // Cloned here to use later
-
-            // Spawn a task for receiving broadcast messages and sending them over WebSocket to
-            // this specific client
-            let tx_clone = tx.clone();
-            let client_send = tokio::spawn(async move {
-                while let Ok(message) = rx.recv().await {
-                    // Gracefully handle error, instead of unwrap -> avoids panic
-                    if let Err(e) = ws_tx.send(Message::Text(message)).await {
-                        eprintln!("Failed to send message: {:?}", e);
+            // Task for sending messages to this client
+            let send_task = tokio::spawn(async move {
+                while let Some(message) = rx.recv().await {
+                    if outgoing.send(Message::Text(message)).await.is_err() {
                         break;
                     }
                 }
             });
 
-            // Spawn another task for receiving any message sent by this specific client over
-            // WebSocket, formatting it with sender identification, printing onto console and then
-            // broadcasting over channel
-            let client_id_receive = client_id.clone();
-            let client_receive = tokio::spawn(async move {
-                while let Some(Ok(Message::Text(text))) = ws_rx.next().await {
-                    // Check if message starts with "/name"
-                    if text.starts_with("/name") {
-                        let nickname = text[5..].trim().to_string();
-                        clients_guard
-                            .lock()
-                            .unwrap()
-                            .insert(client_id.clone(), Some(nickname));
-                    } else {
-                        let clients_guard = clients.clone();
-                        let mut sender_name = String::from("Unknown");
+            // Task for receiving messages from this client
+            let recv_task = {
+                let clients = clients.clone();
+                let history = history.clone();
+                let client_id = client_id.clone();
 
-                        // Check if user has a set nickname
-                        if let Some(nickname) = &clients_guard.lock().unwrap()[&client_id] {
-                            sender_name = nickname.clone();
-                        }
+                tokio::spawn(async move {
+                    while let Some(Ok(Message::Text(text))) = incoming.next().await {
+                        if text.starts_with("/") {
+                            handle_command(&text, &client_id, &clients).await;
+                        } else {
+                            // Broadcast to all clients
+                            let client_name =
+                                clients.lock().await.get(&client_id).unwrap().0.clone();
+                            let broadcast_message: String;
+                            broadcast_message = match client_name {
+                                Some(name) => format!("{}: {}", name, text),
+                                None => format!("{}: {}", client_id.clone(), text),
+                            };
+                            // Add to history
+                            if history.lock().await.len() == 100 {
+                                history.lock().await.pop_front();
+                            }
+                            history.lock().await.push_back(broadcast_message.clone());
 
-                        let message = format!("{}: {}", sender_name, text);
-                        println!("{}", message);
-                        // Gracefully handle error, instead of unwrap -> avoids panic
-                        if let Err(e) = tx_clone.send(message) {
-                            eprintln!("Failed to send message: {:?}", e);
-                            break;
+                            for (_, (_, tx)) in clients.lock().await.iter() {
+                                tx.send(broadcast_message.clone()).unwrap();
+                            }
                         }
                     }
-                }
-            });
 
-            // Wait until either send or receive task is done. This could be because an error
-            // occurred, or because the WebSocket was closed by the other end.
-            tokio::select! {
-                _ = client_send => (),
-                _ = client_receive => (),
+                    // Cleanup: Remove the client after disconnect
+                    clients.lock().await.remove(&client_id);
+                })
             };
 
-            // Log that client has disconnected
-            println!("Client {} disconnected", client_id_receive);
+            /* Wait for either task to complete. If one completes, cancel the other. */
+            tokio::select! {
+                _= send_task => {},
+                _= recv_task => {},
+            };
         });
+    }
+}
+
+async fn handle_command(
+    command: &str,
+    client_id: &str,
+    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+) {
+    match command.strip_prefix("/") {
+        Some("help") => {
+            send_to_client(
+                client_id,
+                clients,
+                r#"
+            /help - Show available commands
+            /name <your_name> - Set your nickname
+            /list - List all connected users
+            "#
+                .to_string(),
+            )
+            .await;
+        }
+
+        Some(cmd) if cmd.starts_with("name") => {
+            let name = cmd[4..].trim().to_string();
+            if name.is_empty() {
+                send_to_client(
+                    client_id,
+                    clients,
+                    "Please provide a valid name.".to_string(),
+                )
+                .await;
+            } else {
+                let old_tx = {
+                    // Clone channel in separate scope so we only hold lock temporarily
+                    let clients_guard = clients.lock().await;
+                    let old_data = clients_guard.get(client_id).unwrap();
+                    old_data.1.clone()
+                };
+
+                // Now we can insert without deadlocking
+                clients
+                    .lock()
+                    .await
+                    .insert(client_id.to_string(), (Some(name.clone()), old_tx)); // Update the client name
+
+                send_to_client(
+                    client_id,
+                    &clients,
+                    format!("Your name is now set to '{}'", name),
+                )
+                .await;
+            }
+        }
+
+        Some("list") => {
+            /* Get the list of all connected users */
+            let list_of_clients: Vec<String> = (*clients)
+                .lock()
+                .await
+                .values()
+                .filter_map(|(name_opt, _)| name_opt.as_ref())
+                .map(String::clone)
+                .collect();
+
+            /* Convert the list to a single string */
+            let names: String = list_of_clients.join(", ");
+
+            /* Send the message to the client */
+            send_to_client(client_id, clients, format!("Connected users: {}", names)).await;
+        }
+
+        _ => {
+            send_to_client(
+                client_id,
+                clients,
+                "Unknown command. Type /help for a list of commands.".to_string(),
+            )
+            .await;
+        }
+    }
+}
+
+async fn send_to_client(
+    client_id: &str,
+    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+    message: String,
+) {
+    if let Some((_, tx)) = clients.lock().await.get_mut(&client_id.to_string()) {
+        tx.send(message).unwrap();
     }
 }
