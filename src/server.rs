@@ -71,6 +71,7 @@ async fn main() {
                     // Gracefully handle error, instead of unwrap -> avoids panic
                     if let Err(e) = ws_tx.send(Message::Text(message)).await {
                         eprintln!("Failed to send message: {:?}", e);
+                        break;
                     }
                 }
             });
@@ -99,8 +100,10 @@ async fn main() {
 
                         let message = format!("{}: {}", sender_name, text);
                         println!("{}", message);
+                        // Gracefully handle error, instead of unwrap -> avoids panic
                         if let Err(e) = tx_clone.send(message) {
                             eprintln!("Failed to send message: {:?}", e);
+                            break;
                         }
                     }
                 }
