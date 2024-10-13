@@ -155,6 +155,19 @@ async fn run_app<B: Backend>(
                     if key.kind == KeyEventKind::Release {
                         continue;
                     }
+                                        match key.code {
+                        KeyCode::Up => app.scroll_up(),
+                        KeyCode::Down => app.scroll_down(),
+                        KeyCode::Char('q') => return Ok(true), // Quit
+                        KeyCode::Enter => if let CurrentScreen::ComposingMessage = app.current_screen {
+                            if let Err(e) = write.send(Message::Text(app.message_input.clone())).await {
+                                eprintln!("Failed to send message: {:?}", e);
+                            }
+                            app.message_input.clear();
+                            app.current_screen = CurrentScreen::Main;
+                        },
+                        _ => {}
+                    }
                     match app.current_screen {
                         CurrentScreen::Main => match key.code {
                             KeyCode::Enter =>{
