@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::{App, CurrentScreen};
 
-pub fn ui(frame: &mut Frame, app: &App) {
+pub fn ui(frame: &mut Frame, app: &mut App) {
     // Create the layout sections.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -53,7 +53,11 @@ pub fn ui(frame: &mut Frame, app: &App) {
     //   }
 
     let max_width = chunks[1].width as usize - 4; // The width of messages List minus padding and borders.
-    for message in &app.messages {
+    let max_height = chunks[1].height as usize - 2;
+
+    app.messages_offset = app.messages.len().saturating_sub(max_height);
+
+    for message in &app.messages[app.messages_offset..] {
         // Wrap each message so it fits within the widget's width.
         let wrapped_message_lines = wrap_text(message, max_width);
 
