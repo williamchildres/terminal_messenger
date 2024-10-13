@@ -19,11 +19,20 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         ])
         .split(frame.area());
 
+    const TITLE: &str = "TUI Messenger";
+    const KEY_HINT: &str = "(h) help";
+
+    let title_length = TITLE.len();
+    let key_hint_len = KEY_HINT.len();
+    let terminal_size = frame.area();
+    let total_width = terminal_size.width as usize;
+    let spaces_len = total_width.saturating_sub(title_length + key_hint_len + 2);
+
     // Header block with title and key hints
     let header = Paragraph::new(Line::from(vec![
-        Span::styled("TUI Messenger", Style::default().fg(Color::Green)),
-        Span::raw(" ".repeat(chunks[0].width as usize - 26)),
-        Span::styled("(q) quit / (h) help", Style::default().fg(Color::Red)),
+        Span::styled(TITLE, Style::default().fg(Color::Green)),
+        Span::raw(" ".repeat(spaces_len)),
+        Span::styled(KEY_HINT, Style::default().fg(Color::Red)),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, chunks[0]);
