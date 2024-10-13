@@ -1,5 +1,4 @@
 use futures_util::{SinkExt, StreamExt};
-
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     crossterm::{
@@ -10,10 +9,15 @@ use ratatui::{
     Terminal,
 };
 use std::io as err_io;
+use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::time;
 use tokio_tungstenite::connect_async;
-use tungstenite::protocol::Message;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::MaybeTlsStream;
+use tokio_tungstenite::WebSocketStream;
 use url::Url;
 
 mod app;
@@ -31,43 +35,53 @@ async fn main() {
         }
         return;
     }
+    loop {
+        match connect_to_server().await {
+            Ok(ws_stream) => {
+                println!("Connected to the server");
 
-    // Specify the server URL to connect to
-    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
+                // Split the WebSocket stream into a writer and reader part
+                let (mut write, mut read) = ws_stream.split();
 
-    // Establish a WebSocket connection with the server
-    let (ws_stream, _) = connect_async(server_url).await.expect("Failed to connect");
+                // Prepare for reading input from terminal (std input)
+                let stdin = BufReader::new(io::stdin());
 
-    println!("Connected to the server");
+                // Spawn a task for reading WebSocket messages
+                let read_ws = tokio::spawn(async move {
+                    while let Some(Ok(Message::Text(text))) = read.next().await {
+                        println!("Received: {}", text);
+                    }
+                });
 
-    // Split the WebSocket stream into a writer and reader part
-    let (mut write, mut read) = ws_stream.split();
+                // Spawn another task for reading lines from terminal and sending them over WebSocket
+                let write_ws = tokio::spawn(async move {
+                    let mut lines = stdin.lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if let Err(e) = write.send(Message::Text(line)).await {
+                            eprintln!("Failed to send message: {:?}", e);
+                            break;
+                        }
+                    }
+                });
 
-    // Prepare for reading input from terminal (std input)
-    let stdin = BufReader::new(io::stdin());
+                // Wait until either read or write task is done
+                tokio::select! {
+                    _ = read_ws => (),
+                    _ = write_ws => (),
+                }
 
-    // Spawn a task for reading WebSocket messages
-    let read_ws = tokio::spawn(async move {
-        while let Some(Ok(Message::Text(text))) = read.next().await {
-            println!("Received: {}", text);
-        }
-    });
+                // Reconnection attempt failed, wait for some time before trying again
+                println!("Disconnected from the server. Attempting to reconnect...");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            Err(e) => {
+                eprintln!("Failed to connect: {:?}", e);
 
-    // Spawn another task for reading lines from terminal and sending them over WebSocket
-    let write_ws = tokio::spawn(async move {
-        let mut lines = stdin.lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if let Err(e) = write.send(Message::Text(line)).await {
-                eprintln!("Failed to send message: {:?}", e);
-                break;
+                // Connection failed, wait for some time before trying again
+                println!("Failed to connect. Retrying in 5 seconds...");
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
-    });
-
-    // Wait until either read or write task is done
-    tokio::select! {
-        _ = read_ws => (),
-        _ = write_ws => (),
     }
 }
 
@@ -278,4 +292,15 @@ async fn run_app<B: Backend>(
             }
         }
     }
+}
+
+async fn connect_to_server(
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Box<dyn std::error::Error>> {
+    // Specify the server URL to connect to
+    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
+
+    // Establish a WebSocket connection with the server
+    let (ws_stream, _) = connect_async(server_url).await?;
+
+    Ok(ws_stream)
 }
