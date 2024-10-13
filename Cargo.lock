@@ -788,9 +788,11 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "futures-util",
+ "libc",
  "ratatui",
  "serde",
  "serde_json",
+ "signal-hook",
  "tokio",
  "tokio-tungstenite",
  "tungstenite",

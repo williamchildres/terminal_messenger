@@ -1,4 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
+use libc;
+use signal_hook::iterator::SignalsInfo;
+
 use ratatui::{
     backend::{self, Backend, CrosstermBackend},
     crossterm::{
@@ -81,7 +84,7 @@ async fn launch_tui() -> Result<(), io::Error> {
     let mut app = App::new();
 
     // Create a channel for handling input events asynchronously
-    let (tx, mut rx) = mpsc::channel(32);
+    let (tx, mut rx) = mpsc::channel(100);
 
     // Spawn a task to read input events asynchronously
     tokio::spawn(async move {
@@ -143,6 +146,8 @@ async fn run_app<B: Backend>(
                     return Ok(false); // Exit on WebSocket error
                 }
             }
+
+
 
             // Handle user input events
             Some(event) = rx.recv() => {
@@ -207,6 +212,8 @@ async fn run_app<B: Backend>(
                     }
 
                     // Redraw the UI after handling the user input event
+                    terminal.draw(|f| ui(f, app))?;
+                } else if let Event::Resize(_, _) = event {
                     terminal.draw(|f| ui(f, app))?;
                 }
             }
