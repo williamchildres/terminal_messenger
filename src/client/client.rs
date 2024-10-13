@@ -73,9 +73,9 @@ async fn main() {
     }
 }
 
-async fn launch_tui() -> Result<(), io::Error> {
+async fn launch_tui() -> Result<(), Box<dyn std::error::Error>> {
     // setup terminal
-    enable_raw_mode()?;
+    enable_raw_mode().map_err(Box::new)?;
     let mut stdout = err_io::stderr();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
