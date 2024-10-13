@@ -45,11 +45,25 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
     // Display the list of messages in the main area (chunks[1])
     let mut list_items = Vec::<ListItem>::new();
+    //   for message in &app.messages {
+    //       list_items.push(ListItem::new(Span::styled(
+    //           message,
+    //           Style::default().fg(Color::Green), // Customize color and style here
+    //       )));
+    //   }
+
+    let max_width = chunks[1].width as usize - 4; // The width of messages List minus padding and borders.
     for message in &app.messages {
-        list_items.push(ListItem::new(Span::styled(
-            message,
-            Style::default().fg(Color::Green), // Customize color and style here
-        )));
+        // Wrap each message so it fits within the widget's width.
+        let wrapped_message_lines = wrap_text(message, max_width);
+
+        // Create a ListItem for each line produced by wrapping and add them to list_items vector.
+        for line in wrapped_message_lines {
+            list_items.push(ListItem::new(Span::styled(
+                line,
+                Style::default().fg(Color::Green),
+            )));
+        }
     }
 
     let list = List::new(list_items).block(Block::default().borders(Borders::ALL));
@@ -110,4 +124,26 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1] // Return the middle chunk
+}
+
+/// Wrap text into lines with maximum width.
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in text.split('\n') {
+        let words = line.split_whitespace();
+        let mut new_line = String::new();
+        for word in words {
+            if new_line.len() + word.len() > max_width {
+                lines.push(new_line);
+                new_line = String::from(word);
+            } else {
+                if !new_line.is_empty() {
+                    new_line.push(' ');
+                }
+                new_line.push_str(word);
+            }
+        }
+        lines.push(new_line);
+    }
+    lines
 }
