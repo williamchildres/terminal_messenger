@@ -26,6 +26,7 @@ use crate::ui::ui;
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() > 1 && args[1] == "/tui" {
@@ -74,7 +75,7 @@ async fn main() {
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(e) => {
-                eprintln!("Failed to connect: {:?}", e);
+                log::error!("Failed to connect: {:?}", e);
 
                 // Connection failed, wait for some time before trying again
                 println!("Failed to connect. Retrying in 5 seconds...");
@@ -112,7 +113,7 @@ async fn launch_tui() -> Result<(), Box<dyn std::error::Error>> {
     match run_app(&mut terminal, &mut app, &mut rx).await {
         Ok(result) => result,
         Err(err) => {
-            eprintln!("Error running app: {:?}", err);
+            log::error!("Error running app: {:?}", err);
             std::process::exit(1);
         }
     };
@@ -160,7 +161,7 @@ async fn run_app<B: Backend>(
                 }   else if let Some(Err(e)) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    eprintln!("WebSocket error: {:?}", e);
+                    log::error!("WebSocket error: {:?}", e);
                 }
             }
             // Handle user input events
@@ -223,21 +224,21 @@ async fn run_app<B: Backend>(
                                         // Send the `/name` command to the server
                                         let cmd = format!("/name {}", name);
                                         if let Err(e) = write.send(Message::Text(cmd)).await {
-                                            eprintln!("Failed to send command: {:?}", e);
+                                            log::error!("Failed to send command: {:?}", e);
                                         }
                                         app.set_username(name);  // Update username locally
                                     },
                                     Command::ListUsers => {
                                         // Send the `/list` command to the server
                                         if let Err(e) = write.send(Message::Text("/list".to_string())).await {
-                                            eprintln!("Failed to send command: {:?}", e);
+                                            log::error!("Failed to send command: {:?}", e);
                                         }
                                     },
                                     Command::DirectMessage(recipient, message) => {
                                         // Send the `/dm` command to the server
                                         let cmd = format!("/dm {} {}", recipient, message);
                                         if let Err(e) = write.send(Message::Text(cmd)).await {
-                                            eprintln!("Failed to send command: {:?}", e);
+                                            log::error!("Failed to send command: {:?}", e);
                                         }
                                     },
                                     Command::Help => {
@@ -247,7 +248,7 @@ async fn run_app<B: Backend>(
                                     Command::Unknown(input) => {
                                         // Send non-command input as a regular message to the server
                                         if let Err(e) = write.send(Message::Text(input)).await {
-                                            eprintln!("Failed to send message: {:?}", e);
+                                            log::error!("Failed to send message: {:?}", e);
                                         }
                                     }
                                 }
@@ -283,7 +284,7 @@ async fn run_app<B: Backend>(
                                 // Send the `/name` command to the server
                                 let cmd = format!("/name {}", username);
                                 if let Err(e) = write.send(Message::Text(cmd)).await {
-                                    eprintln!("Failed to send command: {:?}", e);
+                                    log::error!("Failed to send command: {:?}", e);
                                 }
 
                                 app.current_screen = CurrentScreen::Main; // Go back to the main screen

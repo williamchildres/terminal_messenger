@@ -38,7 +38,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     }
 
     const TITLE: &str = "TUI Messenger";
-    const KEY_HINT: &str = "(q) quit";
+    const KEY_HINT: &str = "(h) help";
 
     let title_length = TITLE.len();
     let key_hint_len = KEY_HINT.len();
