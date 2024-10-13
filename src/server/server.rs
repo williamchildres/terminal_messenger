@@ -84,8 +84,7 @@ async fn main() {
                         }
                     }
 
-                    // Cleanup: Remove the client after disconnect
-                    clients.lock().await.remove(&client_id);
+                    handle_disconnect(&client_id, &clients).await;
                 })
             };
 
@@ -233,4 +232,25 @@ async fn send_to_client(
     if let Some((_, tx)) = clients.lock().await.get_mut(&client_id.to_string()) {
         tx.send(message).unwrap();
     }
+}
+
+async fn handle_disconnect(
+    client_id: &str,
+    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+) {
+    // Remove the client from the active list
+    let client_name = {
+        let mut clients_guard = clients.lock().await;
+        let client_name = clients_guard.remove(client_id).and_then(|(name, _)| name);
+        client_name.unwrap_or_else(|| client_id.to_string()) // Use client_id if no name was set
+    };
+
+    let disconnect_message = format!("{} has disconnected.", client_name);
+
+    // Broadcast the disconnection message to all remaining clients
+    for (_, (_, tx)) in clients.lock().await.iter() {
+        tx.send(disconnect_message.clone()).unwrap();
+    }
+
+    println!("{} has disconnected", client_name);
 }
