@@ -13,7 +13,6 @@ use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio::time;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
@@ -139,7 +138,9 @@ async fn run_app<B: Backend>(
     let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
 
     // Establish a WebSocket connection with the server
-    let (ws_stream, _) = connect_async(server_url).await.expect("Failed to connect");
+    let (ws_stream, _) = connect_async(server_url)
+        .await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     let (mut write, mut read) = ws_stream.split();
 
@@ -152,13 +153,13 @@ async fn run_app<B: Backend>(
                     // Update app state with the received WebSocket message
                     app.handle_websocket_message(text);
                     // Redraw the UI after receiving the message
-                    terminal.draw(|f| ui(f, app))?;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 }   else if let Some(Ok(Message::Close(_))) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
-                    terminal.draw(|f| ui(f, app))?;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 }   else if let Some(Err(e)) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
-                    terminal.draw(|f| ui(f, app))?;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                     eprintln!("WebSocket error: {:?}", e);
                 }
             }
@@ -208,7 +209,7 @@ async fn run_app<B: Backend>(
                                     // Clear terminal and force a full redraw when reconnected
                                     terminal.clear()?;
                                     app.current_screen = CurrentScreen::Main; // Reconnect successful
-                                    terminal.draw(|f| ui(f, app))?;
+                                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                                 }
                             }
                             KeyCode::Char('q') => return Ok(true),  // Exit the app
@@ -301,9 +302,9 @@ async fn run_app<B: Backend>(
                         },
                     }
                     // Redraw the UI after handling the user input event
-                    terminal.draw(|f| ui(f, app))?;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 } else if let Event::Resize(_, _) = event {
-                    terminal.draw(|f| ui(f, app))?;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 }
             }
         }
