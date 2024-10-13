@@ -3,6 +3,7 @@
 pub enum CurrentScreen {
     Main,
     ComposingMessage,
+    HelpMenu,
     Exiting,
 }
 

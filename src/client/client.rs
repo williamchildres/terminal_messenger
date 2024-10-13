@@ -1,6 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
+    backend::{self, Backend, CrosstermBackend},
     crossterm::{
         event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
         execute,
@@ -152,9 +152,12 @@ async fn run_app<B: Backend>(
                     }
                     match app.current_screen {
                         CurrentScreen::Main => match key.code {
-                            KeyCode::Char('e') => {
+                            KeyCode::Enter =>{
                                 app.current_screen = CurrentScreen::ComposingMessage;
                                 app.message_input.clear();
+                            }
+                            KeyCode::Char('h') => {
+                                app.current_screen = CurrentScreen::HelpMenu;
                             }
                             KeyCode::Char('q') => {
                                 app.current_screen = CurrentScreen::Exiting;
@@ -194,6 +197,11 @@ async fn run_app<B: Backend>(
                             }
                             _ => {}
                         },
+                        CurrentScreen::HelpMenu => match key.code {  // pressing any key will exit help menu
+                         _ => {
+                             app.current_screen = CurrentScreen::Main;
+                         }
+                     },
                       //  _ => {}
 
                     }
