@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
@@ -29,7 +29,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
 
     // Right side of the header: "(q) to quit / (e) to compose message"
     let key_hint_text = Span::styled(
-        "(q) to quit / (e) to compose message",
+        "(q) to quit / (h) for help",
         Style::default().fg(Color::Red),
     );
 
@@ -74,15 +74,43 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     frame.render_widget(list, chunks[1]);
 
     // Show message input at the bottom if the user is composing a message
-    if let CurrentScreen::ComposingMessage = app.current_screen {
-        let typing_block = Block::default()
-            .title("Compose Message")
-            .borders(Borders::ALL);
-        let typing_paragraph = Paragraph::new(app.message_input.as_str())
-            .block(typing_block)
-            .wrap(Wrap { trim: true });
+    let typing_block = Block::default()
+        .title("Compose Message")
+        .borders(Borders::ALL);
+    let typing_paragraph = Paragraph::new(app.message_input.as_str())
+        .block(typing_block)
+        .wrap(Wrap { trim: true });
 
-        frame.render_widget(typing_paragraph, chunks[2]); // Use chunks[2] for the input field at the bottom
+    frame.render_widget(typing_paragraph, chunks[2]); // Use chunks[2] for the input field at the bottom
+
+    if let CurrentScreen::ComposingMessage = app.current_screen {
+        let x_position = chunks[2].x + app.message_input.len() as u16 + 1;
+        let y_position = chunks[2].y + 1;
+        let position = Position::new(x_position, y_position);
+        frame.set_cursor_position(position);
+    }
+
+    // Show help menu if 'e' is pressed
+    if let CurrentScreen::HelpMenu = app.current_screen {
+        frame.render_widget(Clear, frame.area()); // Clears the entire screen and anything already drawn
+
+        let help_menu_block = Block::default()
+            .title("Help Menu")
+            .borders(Borders::NONE)
+            .style(Style::default().bg(Color::DarkGray));
+
+        let help_menu_text = Text::styled(
+            "Here is some helpful information", // replace with actual help text
+            Style::default().fg(Color::Red),
+        );
+
+        let help_menu_paragraph = Paragraph::new(help_menu_text)
+            .block(help_menu_block)
+            .wrap(Wrap { trim: false });
+
+        let area = centered_rect(60, 25, frame.area());
+
+        frame.render_widget(help_menu_paragraph, area);
     }
 
     // Exiting confirmation popup
