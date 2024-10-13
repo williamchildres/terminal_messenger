@@ -10,7 +10,6 @@ use ratatui::{
 use crate::app::{App, CurrentScreen};
 
 pub fn ui(frame: &mut Frame, app: &mut App) {
-    // Create the layout sections.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -20,80 +19,59 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         ])
         .split(frame.area());
 
-    // Create the title and key hints in the header (chunks[0])
-    let title_block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default());
+    // Header block with title and key hints
+    let header = Paragraph::new(Line::from(vec![
+        Span::styled("TUI Messenger", Style::default().fg(Color::Green)),
+        Span::raw(" ".repeat(chunks[0].width as usize - 26)),
+        Span::styled("(q) quit / (h) help", Style::default().fg(Color::Red)),
+    ]))
+    .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(header, chunks[0]);
 
-    // Get terminal size
-    let terminal_size = frame.area();
-    let total_width = terminal_size.width as usize;
+    // Messages list block (handles multi-line wrapping)
+    let messages_area = chunks[1];
+    let max_width = messages_area.width as usize - 4;
+    let available_lines = messages_area.height as usize - 2;
 
-    // Calculate lengths of title and key hint texts
-    let title_len = "TUI Messenger".len();
-    let key_kint_len = "(q) quit / (h) help".len();
+    // Flatten all messages into individual wrapped lines
+    let wrapped_messages = app
+        .messages
+        .iter()
+        .flat_map(|msg| wrap_text(msg, max_width))
+        .collect::<Vec<String>>();
 
-    // Calculate length of space that should be inserted between title and key hints, + 2 to
-    // accomidate title block
-    let spaces_len = total_width.saturating_sub(title_len + key_kint_len + 2);
+    // Calculate the starting point based on available display lines and scrolling offset
+    let start_line = wrapped_messages
+        .len()
+        .saturating_sub(available_lines + app.scroll_offset);
 
-    // Left side of the header: "TUI Messenger"
-    let title_text = Span::styled("TUI Messenger", Style::default().fg(Color::Green));
+    // Create list items from wrapped lines
+    let visible_lines = wrapped_messages
+        .iter()
+        .skip(start_line)
+        .take(available_lines)
+        .map(|line| ListItem::new(Span::styled(line, Style::default().fg(Color::Green))))
+        .collect::<Vec<ListItem>>();
 
-    // Right side of the header: "(q) to quit / (e) to compose message"
-    let key_hint_text = Span::styled("(q) quit / (h) help", Style::default().fg(Color::Red));
+    let list = List::new(visible_lines).block(Block::default().borders(Borders::ALL));
+    frame.render_widget(list, messages_area);
 
-    // Combine the two into one line
-    let header_line = Line::from(vec![
-        title_text,                                             // Title on the left
-        Span::styled(" ".repeat(spaces_len), Style::default()), // Add spacing between title and key hints
-        key_hint_text,                                          // Key hints on the right
-    ]);
-
-    let title_paragraph = Paragraph::new(header_line).block(title_block);
-    frame.render_widget(title_paragraph, chunks[0]);
-
-    // Display the list of messages in the main area (chunks[1])
-    let mut list_items = Vec::<ListItem>::new();
-
-    let max_width = chunks[1].width as usize - 4; // The width of messages List minus padding and borders.
-    let max_height = chunks[1].height as usize - 2;
-
-    app.messages_offset = app.messages.len().saturating_sub(max_height);
-
-    for message in &app.messages[app.messages_offset..] {
-        // Wrap each message so it fits within the widget's width.
-        let wrapped_message_lines = wrap_text(message, max_width);
-
-        // Create a ListItem for each line produced by wrapping and add them to list_items vector.
-        for line in wrapped_message_lines {
-            list_items.push(ListItem::new(Span::styled(
-                line,
-                Style::default().fg(Color::Green),
-            )));
-        }
-    }
-
-    let list = List::new(list_items).block(Block::default().borders(Borders::ALL));
-    frame.render_widget(list, chunks[1]);
-
-    // Show message input at the bottom if the user is composing a message
-    let typing_block = Block::default()
-        .title("Compose Message")
-        .borders(Borders::ALL);
-    let typing_paragraph = Paragraph::new(app.message_input.as_str())
-        .block(typing_block)
+    // Message input block
+    let typing = Paragraph::new(app.message_input.as_str())
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Compose Message"),
+        )
         .wrap(Wrap { trim: true });
+    frame.render_widget(typing, chunks[2]);
 
-    frame.render_widget(typing_paragraph, chunks[2]); // Use chunks[2] for the input field at the bottom
-
+    // Set cursor position if composing a message
     if let CurrentScreen::ComposingMessage = app.current_screen {
-        let x_position = chunks[2].x + app.message_input.len() as u16 + 1;
-        let y_position = chunks[2].y + 1;
-        let position = Position::new(x_position, y_position);
-        frame.set_cursor_position(position);
+        let cursor_x = chunks[2].x + app.message_input.len() as u16 + 1;
+        let cursor_y = chunks[2].y + 1;
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
     }
-
     // Show help menu if 'e' is pressed
     if let CurrentScreen::HelpMenu = app.current_screen {
         frame.render_widget(Clear, frame.area()); // Clears the entire screen and anything already drawn
