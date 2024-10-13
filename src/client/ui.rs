@@ -1,4 +1,5 @@
 use ratatui::{
+    crossterm::terminal,
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
@@ -24,20 +25,29 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         .borders(Borders::ALL)
         .style(Style::default());
 
+    // Get terminal size
+    let terminal_size = frame.area();
+    let total_width = terminal_size.width as usize;
+
+    // Calculate lengths of title and key hint texts
+    let title_len = "TUI Messenger".len();
+    let key_kint_len = "(q) quit / (h) help".len();
+
+    // Calculate length of space that should be inserted between title and key hints, + 2 to
+    // accomidate title block
+    let spaces_len = total_width.saturating_sub(title_len + key_kint_len + 2);
+
     // Left side of the header: "TUI Messenger"
     let title_text = Span::styled("TUI Messenger", Style::default().fg(Color::Green));
 
     // Right side of the header: "(q) to quit / (e) to compose message"
-    let key_hint_text = Span::styled(
-        "(q) to quit / (h) for help",
-        Style::default().fg(Color::Red),
-    );
+    let key_hint_text = Span::styled("(q) quit / (h) help", Style::default().fg(Color::Red));
 
     // Combine the two into one line
     let header_line = Line::from(vec![
-        title_text,                                     // Title on the left
-        Span::styled(" ".repeat(30), Style::default()), // Add spacing between title and key hints
-        key_hint_text,                                  // Key hints on the right
+        title_text,                                             // Title on the left
+        Span::styled(" ".repeat(spaces_len), Style::default()), // Add spacing between title and key hints
+        key_hint_text,                                          // Key hints on the right
     ]);
 
     let title_paragraph = Paragraph::new(header_line).block(title_block);
@@ -45,12 +55,6 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
 
     // Display the list of messages in the main area (chunks[1])
     let mut list_items = Vec::<ListItem>::new();
-    //   for message in &app.messages {
-    //       list_items.push(ListItem::new(Span::styled(
-    //           message,
-    //           Style::default().fg(Color::Green), // Customize color and style here
-    //       )));
-    //   }
 
     let max_width = chunks[1].width as usize - 4; // The width of messages List minus padding and borders.
     let max_height = chunks[1].height as usize - 2;
