@@ -6,6 +6,15 @@ pub enum CurrentScreen {
     ComposingMessage,
     HelpMenu,
     Exiting,
+    Disconnected,
+}
+
+pub enum Command {
+    SetName(String),
+    ListUsers,
+    DirectMessage(String, String), // recipient, message
+    Help,
+    Unknown(String),
 }
 
 pub struct App {
@@ -42,5 +51,23 @@ impl App {
     // Method for setting username
     pub fn set_username(&mut self, name: String) {
         self.username = Some(name);
+    }
+    pub fn parse_command(&self, input: &str) -> Command {
+        let input = input.trim();
+
+        if input.starts_with("/") {
+            let parts: Vec<&str> = input.splitn(3, ' ').collect();
+            match parts.as_slice() {
+                ["/name", name] if !name.is_empty() => Command::SetName(name.to_string()),
+                ["/list"] => Command::ListUsers,
+                ["/dm", recipient, message] if !message.is_empty() => {
+                    Command::DirectMessage(recipient.to_string(), message.to_string())
+                }
+                ["/help"] => Command::Help,
+                _ => Command::Unknown(input.to_string()),
+            }
+        } else {
+            Command::Unknown(input.to_string()) // Treat as unknown if it's not a valid command
+        }
     }
 }

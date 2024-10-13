@@ -18,7 +18,7 @@ use url::Url;
 
 mod app;
 mod ui;
-use crate::app::{App, CurrentScreen};
+use crate::app::{App, Command, CurrentScreen};
 use crate::ui::ui;
 
 #[tokio::main]
@@ -139,7 +139,11 @@ async fn run_app<B: Backend>(
                     app.handle_websocket_message(text);
                     // Redraw the UI after receiving the message
                     terminal.draw(|f| ui(f, app))?;
-                } else if let Some(Err(e)) = ws_msg {
+                }   else if let Some(Ok(Message::Close(_))) = ws_msg {
+                    eprintln!("WebSocket closed");
+                    app.current_screen = CurrentScreen::Disconnected;
+                    return Ok(false);
+                }   else if let Some(Err(e)) = ws_msg {
                     eprintln!("WebSocket error: {:?}", e);
                     return Ok(false); // Exit on WebSocket error
                 }
@@ -179,14 +183,49 @@ async fn run_app<B: Backend>(
                             }
                             _ => {}
                         },
+                        CurrentScreen::Disconnected => match key.code {
+                            KeyCode::Char('q') => return Ok(true),  // Exit the app
+                            _ => {}
+                        },
                          CurrentScreen::ComposingMessage => match key.code {
                             KeyCode::Enter => {
-                                // Send the message to the WebSocket server
-                                if let Err(e) = write.send(Message::Text(app.message_input.clone())).await {
-                                    eprintln!("Failed to send message: {:?}", e);
+                                let user_input = app.message_input.clone();
+                                match app.parse_command(&user_input) {
+                                    Command::SetName(name) => {
+                                        // Send the `/name` command to the server
+                                        let cmd = format!("/name {}", name);
+                                        if let Err(e) = write.send(Message::Text(cmd)).await {
+                                            eprintln!("Failed to send command: {:?}", e);
+                                        }
+                                        app.set_username(name);  // Update username locally
+                                    },
+                                    Command::ListUsers => {
+                                        // Send the `/list` command to the server
+                                        if let Err(e) = write.send(Message::Text("/list".to_string())).await {
+                                            eprintln!("Failed to send command: {:?}", e);
+                                        }
+                                    },
+                                    Command::DirectMessage(recipient, message) => {
+                                        // Send the `/dm` command to the server
+                                        let cmd = format!("/dm {} {}", recipient, message);
+                                        if let Err(e) = write.send(Message::Text(cmd)).await {
+                                            eprintln!("Failed to send command: {:?}", e);
+                                        }
+                                    },
+                                    Command::Help => {
+                                        // Handle help locally
+                                        app.current_screen = CurrentScreen::HelpMenu;
+                                    },
+                                    Command::Unknown(input) => {
+                                        // Send non-command input as a regular message to the server
+                                        if let Err(e) = write.send(Message::Text(input)).await {
+                                            eprintln!("Failed to send message: {:?}", e);
+                                        }
+                                    }
                                 }
-                                app.message_input.clear();  // Clear the input buffer after sending
-                                app.current_screen = CurrentScreen::Main;  // Go back to the main screen
+
+                            app.message_input.clear();  // Clear input field after sending
+                            app.current_screen = CurrentScreen::Main;  // Return to the main screen
                             }
                             KeyCode::Backspace => {
                                 // Remove the last character from the message input
