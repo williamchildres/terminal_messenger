@@ -95,7 +95,13 @@ async fn launch_tui() -> Result<(), io::Error> {
     });
 
     // Start running the app
-    let res = run_app(&mut terminal, &mut app, &mut rx).await;
+    match run_app(&mut terminal, &mut app, &mut rx).await {
+        Ok(result) => result,
+        Err(err) => {
+            eprintln!("Error running app: {:?}", err);
+            std::process::exit(1);
+        }
+    };
 
     // Restore terminal state
     disable_raw_mode()?;
@@ -188,7 +194,7 @@ async fn run_app<B: Backend>(
                             }
                             _ => {}
                         },
-                        _ => {}
+                      //  _ => {}
 
                     }
 
