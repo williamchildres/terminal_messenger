@@ -155,8 +155,11 @@ async fn run_app<B: Backend>(
                     terminal.draw(|f| ui(f, app))?;
                 }   else if let Some(Ok(Message::Close(_))) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
+                    terminal.draw(|f| ui(f, app))?;
                 }   else if let Some(Err(e)) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
+                    terminal.draw(|f| ui(f, app))?;
+                    eprintln!("WebSocket error: {:?}", e);
                 }
             }
             // Handle user input events
@@ -195,6 +198,19 @@ async fn run_app<B: Backend>(
                             _ => {}
                         },
                         CurrentScreen::Disconnected => match key.code {
+                            KeyCode::Char('r') => {
+                                // Attempt to reconnect
+                                if let Ok(new_stream) = connect_to_server().await {
+                                    let (new_write, new_read) = new_stream.split();
+                                    write = new_write;
+                                    read = new_read;
+
+                                    // Clear terminal and force a full redraw when reconnected
+                                    terminal.clear()?;
+                                    app.current_screen = CurrentScreen::Main; // Reconnect successful
+                                    terminal.draw(|f| ui(f, app))?;
+                                }
+                            }
                             KeyCode::Char('q') => return Ok(true),  // Exit the app
                             _ => {}
                         },
