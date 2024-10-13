@@ -140,12 +140,9 @@ async fn run_app<B: Backend>(
                     // Redraw the UI after receiving the message
                     terminal.draw(|f| ui(f, app))?;
                 }   else if let Some(Ok(Message::Close(_))) = ws_msg {
-                    eprintln!("WebSocket closed");
                     app.current_screen = CurrentScreen::Disconnected;
-                    return Ok(false);
                 }   else if let Some(Err(e)) = ws_msg {
-                    eprintln!("WebSocket error: {:?}", e);
-                    return Ok(false); // Exit on WebSocket error
+                    app.current_screen = CurrentScreen::Disconnected;
                 }
             }
             // Handle user input events
