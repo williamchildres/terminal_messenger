@@ -1,9 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
-use libc;
-use signal_hook::iterator::SignalsInfo;
 
 use ratatui::{
-    backend::{self, Backend, CrosstermBackend},
+    backend::{Backend, CrosstermBackend},
     crossterm::{
         event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
         execute,
@@ -164,6 +162,9 @@ async fn run_app<B: Backend>(
                             KeyCode::Char('q') => {
                                 app.current_screen = CurrentScreen::Exiting;
                             }
+                            KeyCode::Char('n') => {
+                                app.current_screen = CurrentScreen::SetUser;
+                            }
                             KeyCode::Up => app.scroll_up(),
                             KeyCode::Down => app.scroll_down(),
                             _ => {}
@@ -205,11 +206,34 @@ async fn run_app<B: Backend>(
                          _ => {
                              app.current_screen = CurrentScreen::Main;
                          }
-                     },
-                      //  _ => {}
+                        },
+                        CurrentScreen::SetUser => match key.code {
+                            KeyCode::Enter => {
+                                // Set the username and switch back to the main screen
+                                let username = app.message_input.clone();
+                                app.set_username(username.clone());
 
+                                // Send the `/name` command to the server
+                                let cmd = format!("/name {}", username);
+                                if let Err(e) = write.send(Message::Text(cmd)).await {
+                                    eprintln!("Failed to send command: {:?}", e);
+                                }
+
+                                app.current_screen = CurrentScreen::Main; // Go back to the main screen
+                                app.message_input.clear();  // Clear input after setting username
+                            }
+                            KeyCode::Backspace => {
+                                app.message_input.pop();  // Handle backspace to delete last character
+                            }
+                            KeyCode::Esc => {
+                                app.current_screen = CurrentScreen::Main;  // Cancel username input and go back
+                            }
+                            KeyCode::Char(c) => {
+                                app.message_input.push(c);  // Add typed character to input
+                            }
+                            _ => {}
+                        },
                     }
-
                     // Redraw the UI after handling the user input event
                     terminal.draw(|f| ui(f, app))?;
                 } else if let Event::Resize(_, _) = event {

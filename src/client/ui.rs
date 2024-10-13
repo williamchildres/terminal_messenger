@@ -1,5 +1,4 @@
 use ratatui::{
-    crossterm::terminal,
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
@@ -81,6 +80,30 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         let cursor_y = chunks[2].y + 1;
         frame.set_cursor_position(Position::new(cursor_x, cursor_y));
     }
+
+    // Popup for setting the username
+    if let CurrentScreen::SetUser = app.current_screen {
+        frame.render_widget(Clear, frame.area()); // Clears the screen
+
+        let block = Block::default()
+            .title("Set Username")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray));
+
+        let paragraph = Paragraph::new(app.message_input.as_str())
+            .block(block)
+            .wrap(Wrap { trim: true });
+
+        // Center the popup
+        let area = centered_rect(60, 25, frame.area());
+        frame.render_widget(paragraph, area);
+
+        // Set cursor position in the popup for entering the username
+        let cursor_x = area.x + app.message_input.len() as u16 + 1;
+        let cursor_y = area.y + 1;
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+    }
+
     // Show help menu if 'e' is pressed
     if let CurrentScreen::HelpMenu = app.current_screen {
         frame.render_widget(Clear, frame.area()); // Clears the entire screen and anything already drawn
