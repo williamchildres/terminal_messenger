@@ -38,7 +38,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     }
 
     const TITLE: &str = "TUI Messenger";
-    const KEY_HINT: &str = "(h) help";
+    const KEY_HINT: &str = "(q) quit";
 
     let title_length = TITLE.len();
     let key_hint_len = KEY_HINT.len();
@@ -133,7 +133,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             .style(Style::default().bg(Color::DarkGray));
 
         let help_menu_text = Text::styled(
-            "Here is some helpful information", // replace with actual help text
+            "(q) to quit\n(n) to set username", // replace with actual help text
             Style::default().fg(Color::Red),
         );
 
