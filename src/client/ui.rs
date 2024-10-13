@@ -18,6 +18,23 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         ])
         .split(frame.area());
 
+    // Handle disconnected state
+    if let CurrentScreen::Disconnected = app.current_screen {
+        let block = Block::default()
+            .title("Disconnected")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray));
+
+        let paragraph = Paragraph::new("Connection lost. Press 'q' to quit.")
+            .block(block)
+            .wrap(Wrap { trim: true });
+
+        let area = centered_rect(60, 25, frame.area());
+        frame.render_widget(Clear, frame.area()); // Clear the screen
+        frame.render_widget(paragraph, area); // Show disconnection message
+        return; // Skip the rest of the UI rendering
+    }
+
     const TITLE: &str = "TUI Messenger";
     const KEY_HINT: &str = "(h) help";
 
