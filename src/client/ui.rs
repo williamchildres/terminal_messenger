@@ -183,3 +183,37 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     }
     lines
 }
+
+/// Unit tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wrap_text() {
+        let text = "Hello, world! This is a long text that needs to be wrapped.";
+        let max_width = 10;
+        let expected_lines = vec![
+            "Hello,",
+            "world! This",
+            "is a long",
+            "text that",
+            "needs to be",
+            "wrapped.",
+        ];
+
+        let result = wrap_text(text, max_width);
+
+        assert_eq!(result, expected_lines);
+    }
+    #[test]
+    fn test_wrap_text_empty() {
+        let text = "";
+        let max_width = 10;
+        let expected_lines = vec![""];
+
+        let result = wrap_text(text, max_width);
+
+        assert_eq!(result, expected_lines);
+    }
+}
