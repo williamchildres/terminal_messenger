@@ -25,9 +25,11 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             .borders(Borders::ALL)
             .style(Style::default().bg(Color::DarkGray));
 
-        let paragraph = Paragraph::new("Connection lost. Press 'q' to quit.")
-            .block(block)
-            .wrap(Wrap { trim: true });
+        let paragraph = Paragraph::new(
+            "Connection lost. Press 'r' to attempt to reconnect or press 'q' to quit.",
+        )
+        .block(block)
+        .wrap(Wrap { trim: true });
 
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(Clear, frame.area()); // Clear the screen
