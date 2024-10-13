@@ -160,7 +160,8 @@ async fn run_app<B: Backend>(
                                 return Ok(true);
                             }
                             KeyCode::Char('n') | KeyCode::Char('q') => {
-                                return Ok(false);
+                                //return Ok(false);
+                                app.current_screen = CurrentScreen::Main;
                             }
                             _ => {}
                         },
