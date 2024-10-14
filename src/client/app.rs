@@ -44,7 +44,21 @@ impl App {
         }
     }
     pub fn handle_websocket_message(&mut self, message: String) {
-        self.messages.push(message);
+        if let Ok(message_type) = serde_json::from_str::<MessageType>(&message) {
+            match message_type {
+                MessageType::ChatMessage { sender, content } => {
+                    let formatted_message = format!("{}: {}", sender, content);
+                    self.messages.push(formatted_message);
+                }
+                MessageType::SystemMessage(system_message) => {
+                    self.messages.push(system_message);
+                }
+                _ => {}
+            }
+        } else {
+            self.messages.push(message);
+        }
+
         self.scroll_offset = 0;
     }
     // Methods for scrolling up and down

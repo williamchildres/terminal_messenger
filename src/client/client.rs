@@ -8,7 +8,6 @@ use ratatui::{
     },
     Terminal,
 };
-use serde_json::json;
 use std::io as err_io;
 use std::time::Duration;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
@@ -149,171 +148,171 @@ async fn run_app<B: Backend>(
     loop {
         // Use tokio::select! to handle both WebSocket messages and terminal events
         tokio::select! {
-                   // Handle WebSocket messages
-                   ws_msg = read.next() => {
-                       if let Some(Ok(Message::Text(text))) = ws_msg {
-                           // Update app state with the received WebSocket message
-                           app.handle_websocket_message(text);
-                           // Redraw the UI after receiving the message
-                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                       }   else if let Some(Ok(Message::Close(_))) = ws_msg {
-                           app.current_screen = CurrentScreen::Disconnected;
-                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                       }   else if let Some(Err(e)) = ws_msg {
-                           app.current_screen = CurrentScreen::Disconnected;
-                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                           log::error!("WebSocket error: {:?}", e);
-                       }
-                   }
-                   // Handle user input events
-                   Some(event) = rx.recv() => {
-                       if let Event::Key(key) = event {
-                           if key.kind == KeyEventKind::Release {
-                               continue;
-                           }
-                           match app.current_screen {
-                               CurrentScreen::Main => match key.code {
-                                   KeyCode::Enter =>{
-                                       app.current_screen = CurrentScreen::ComposingMessage;
-                                       app.message_input.clear();
-                                   }
-                                   KeyCode::Char('h') => {
-                                       app.current_screen = CurrentScreen::HelpMenu;
-                                   }
-                                   KeyCode::Char('q') => {
-                                       app.current_screen = CurrentScreen::Exiting;
-                                   }
-                                   KeyCode::Char('n') => {
-                                       app.current_screen = CurrentScreen::SetUser;
-                                   }
-                                   KeyCode::Up => app.scroll_up(),
-                                   KeyCode::Down => app.scroll_down(),
-                                   _ => {}
-                               },
-                               CurrentScreen::Exiting => match key.code {
-                                   KeyCode::Char('y') => {
-                                       return Ok(true);
-                                   }
-                                   KeyCode::Char('n') | KeyCode::Char('q') => {
-                                       //return Ok(false);
-                                       app.current_screen = CurrentScreen::Main;
-                                   }
-                                   _ => {}
-                               },
-                               CurrentScreen::Disconnected => match key.code {
-                                   KeyCode::Char('r') => {
-                                       // Attempt to reconnect
-                                       if let Ok(new_stream) = connect_to_server().await {
-                                           let (new_write, new_read) = new_stream.split();
-                                           write = new_write;
-                                           read = new_read;
-
-                                           // Clear terminal and force a full redraw when reconnected
-                                           terminal.clear()?;
-                                           app.current_screen = CurrentScreen::Main; // Reconnect successful
-                                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                                       }
-                                   }
-                                   KeyCode::Char('q') => return Ok(true),  // Exit the app
-                                   _ => {}
-                               },
-                                CurrentScreen::ComposingMessage => match key.code {
-                                   KeyCode::Enter => {
-                                       let user_input = app.message_input.clone();
-                                       match app.parse_command(&user_input) {
-           Command::SetName(name) => {
-               // Serialize the `/name` command to JSON and send it to the server
-               let cmd = MessageType::Command { name: "name".to_string(), args: vec![name.clone()] };
-               if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                   log::error!("Failed to send command: {:?}", e);
-               }
-               app.set_username(name);  // Update username locally
-           },
-           Command::ListUsers => {
-               // Serialize the `/list` command to JSON and send it to the server
-               let cmd = MessageType::Command { name: "list".to_string(), args: vec![] };
-               if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                   log::error!("Failed to send command: {:?}", e);
-               }
-           },
-           Command::DirectMessage(recipient, message) => {
-                // Serialize the `/dm` command to JSON and send it to the server
-                let cmd = MessageType::Command { name: "DirectMessage".to_string(), args: vec![recipient.clone(), message.clone()] };
-                if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                    log::error!("Failed to send command: {:?}", e);
+            // Handle WebSocket messages
+            ws_msg = read.next() => {
+                if let Some(Ok(Message::Text(text))) = ws_msg {
+                    // Update app state with the received WebSocket message
+                    app.handle_websocket_message(text);
+                    // Redraw the UI after receiving the message
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }   else if let Some(Ok(Message::Close(_))) = ws_msg {
+                    app.current_screen = CurrentScreen::Disconnected;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }   else if let Some(Err(e)) = ws_msg {
+                    app.current_screen = CurrentScreen::Disconnected;
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    log::error!("WebSocket error: {:?}", e);
                 }
-            },
-            Command::Help => {
-                 // Handle help locally
-                 app.current_screen = CurrentScreen::HelpMenu;
-            },
-        Command::Unknown(input) => {
-             let msg = MessageType::ChatMessage {
-                 sender: app.username.clone().unwrap_or_else(|| "Anonymous".to_string()),
-                 content: input.clone()
-             };
-             if let Err(e) = write.send(Message::Text(serde_json::to_string(&msg).unwrap())).await {
-                 log::error!("Failed to send message: {:?}", e);
-             }
-        }
-                                       }
+            }
+            // Handle user input events
+            Some(event) = rx.recv() => {
+                if let Event::Key(key) = event {
+                    if key.kind == KeyEventKind::Release {
+                        continue;
+                    }
+                    match app.current_screen {
+                        CurrentScreen::Main => match key.code {
+                            KeyCode::Enter =>{
+                                app.current_screen = CurrentScreen::ComposingMessage;
+                                app.message_input.clear();
+                            }
+                            KeyCode::Char('h') => {
+                                app.current_screen = CurrentScreen::HelpMenu;
+                            }
+                            KeyCode::Char('q') => {
+                                app.current_screen = CurrentScreen::Exiting;
+                            }
+                            KeyCode::Char('n') => {
+                                app.current_screen = CurrentScreen::SetUser;
+                            }
+                            KeyCode::Up => app.scroll_up(),
+                            KeyCode::Down => app.scroll_down(),
+                            _ => {}
+                        },
+                        CurrentScreen::Exiting => match key.code {
+                            KeyCode::Char('y') => {
+                                return Ok(true);
+                            }
+                            KeyCode::Char('n') | KeyCode::Char('q') => {
+                                //return Ok(false);
+                                app.current_screen = CurrentScreen::Main;
+                            }
+                            _ => {}
+                        },
+                        CurrentScreen::Disconnected => match key.code {
+                            KeyCode::Char('r') => {
+                                // Attempt to reconnect
+                                if let Ok(new_stream) = connect_to_server().await {
+                                    let (new_write, new_read) = new_stream.split();
+                                    write = new_write;
+                                    read = new_read;
 
-                                   app.message_input.clear();  // Clear input field after sending
-                                   app.current_screen = CurrentScreen::Main;  // Return to the main screen
-                                   }
-                                   KeyCode::Backspace => {
-                                       // Remove the last character from the message input
-                                       app.message_input.pop();
-                                   }
-                                   KeyCode::Esc => {
-                                       // Cancel message composing and go back to the main screen
-                                       app.current_screen = CurrentScreen::Main;
-                                   }
-                                   KeyCode::Char(c) => {
-                                       // Add the character to the message input
-                                       app.message_input.push(c);
-                                   }
-                                   _ => {}
-                               },
-                               CurrentScreen::HelpMenu => match key.code {  // pressing any key will exit help menu
-                                _ => {
-                                    app.current_screen = CurrentScreen::Main;
+                                    // Clear terminal and force a full redraw when reconnected
+                                    terminal.clear()?;
+                                    app.current_screen = CurrentScreen::Main; // Reconnect successful
+                                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                                 }
-                               },
-                               CurrentScreen::SetUser => match key.code {
-                                   KeyCode::Enter => {
-                                       // Set the username and switch back to the main screen
-                                       let username = app.message_input.clone();
-                                       app.set_username(username.clone());
+                            }
+                            KeyCode::Char('q') => return Ok(true),  // Exit the app
+                            _ => {}
+                        },
+                        CurrentScreen::ComposingMessage => match key.code {
+                            KeyCode::Enter => {
+                                let user_input = app.message_input.clone();
+                                match app.parse_command(&user_input) {
+                                     Command::SetName(name) => {
+                                         // Serialize the `/name` command to JSON and send it to the server
+                                         let cmd = MessageType::Command { name: "name".to_string(), args: vec![name.clone()] };
+                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
+                                             log::error!("Failed to send command: {:?}", e);
+                                         }
+                                         app.set_username(name);  // Update username locally
+                                         },
+                                     Command::ListUsers => {
+                                         // Serialize the `/list` command to JSON and send it to the server
+                                         let cmd = MessageType::Command { name: "list".to_string(), args: vec![] };
+                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
+                                             log::error!("Failed to send command: {:?}", e);
+                                         }
+                                     },
+                                     Command::DirectMessage(recipient, message) => {
+                                         // Serialize the `/dm` command to JSON and send it to the server
+                                         let cmd = MessageType::Command { name: "DirectMessage".to_string(), args: vec![recipient.clone(), message.clone()] };
+                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
+                                             log::error!("Failed to send command: {:?}", e);
+                                         }
+                                     },
+                                     Command::Help => {
+                                         // Handle help locally
+                                         app.current_screen = CurrentScreen::HelpMenu;
+                                     },
+                                     Command::Unknown(input) => {
+                                         let msg = MessageType::ChatMessage {
+                                         sender: app.username.clone().unwrap_or_else(|| "Anonymous".to_string()),
+                                         content: input.clone()
+                                         };
+                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&msg).unwrap())).await {
+                                             log::error!("Failed to send message: {:?}", e);
+                                         }
+                                     }
+                                }
 
-                                       // Send the `/name` command to the server
-                                       let cmd = format!("/name {}", username);
-                                       if let Err(e) = write.send(Message::Text(cmd)).await {
-                                           log::error!("Failed to send command: {:?}", e);
-                                       }
+                                 app.message_input.clear();  // Clear input field after sending
+                                 app.current_screen = CurrentScreen::Main;  // Return to the main screen
+                            }
+                            KeyCode::Backspace => {
+                                // Remove the last character from the message input
+                                app.message_input.pop();
+                            }
+                            KeyCode::Esc => {
+                                // Cancel message composing and go back to the main screen
+                                app.current_screen = CurrentScreen::Main;
+                            }
+                            KeyCode::Char(c) => {
+                                // Add the character to the message input
+                                app.message_input.push(c);
+                            }
+                            _ => {}
+                        },
+                        CurrentScreen::HelpMenu => match key.code {  // pressing any key will exit help menu
+                         _ => {
+                             app.current_screen = CurrentScreen::Main;
+                         }
+                        },
+                        CurrentScreen::SetUser => match key.code {
+                            KeyCode::Enter => {
+                                // Set the username and switch back to the main screen
+                                let username = app.message_input.clone();
+                                app.set_username(username.clone());
 
-                                       app.current_screen = CurrentScreen::Main; // Go back to the main screen
-                                       app.message_input.clear();  // Clear input after setting username
-                                   }
-                                   KeyCode::Backspace => {
-                                       app.message_input.pop();  // Handle backspace to delete last character
-                                   }
-                                   KeyCode::Esc => {
-                                       app.current_screen = CurrentScreen::Main;  // Cancel username input and go back
-                                   }
-                                   KeyCode::Char(c) => {
-                                       app.message_input.push(c);  // Add typed character to input
-                                   }
-                                   _ => {}
-                               },
-                           }
-                           // Redraw the UI after handling the user input event
-                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                       } else if let Event::Resize(_, _) = event {
-                           terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                       }
-                   }
-               }
+                                // Send the `/name` command to the server
+                                let cmd = format!("/name {}", username);
+                                if let Err(e) = write.send(Message::Text(cmd)).await {
+                                    log::error!("Failed to send command: {:?}", e);
+                                }
+
+                                app.current_screen = CurrentScreen::Main; // Go back to the main screen
+                                app.message_input.clear();  // Clear input after setting username
+                            }
+                            KeyCode::Backspace => {
+                                app.message_input.pop();  // Handle backspace to delete last character
+                            }
+                            KeyCode::Esc => {
+                                app.current_screen = CurrentScreen::Main;  // Cancel username input and go back
+                            }
+                            KeyCode::Char(c) => {
+                                app.message_input.push(c);  // Add typed character to input
+                            }
+                            _ => {}
+                        },
+                    }
+                    // Redraw the UI after handling the user input event
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                } else if let Event::Resize(_, _) = event {
+                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }
+            }
+        }
     }
 }
 
