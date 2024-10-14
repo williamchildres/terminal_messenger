@@ -60,11 +60,12 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
                 let clients = clients.clone();
                 let history = history.clone();
                 let client_id = client_id.clone();
+                let app = app.clone();
 
                 tokio::spawn(async move {
                     while let Some(Ok(Message::Text(text))) = incoming.next().await {
                         if text.starts_with("/") {
-                            handle_command(&text, &client_id, &clients).await;
+                            handle_command(&text, &client_id, &clients, app.clone()).await;
                         } else {
                             // Broadcast to all clients
                             let client_name =
@@ -86,7 +87,7 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
                         }
                     }
 
-                    handle_disconnect(&client_id, &clients).await;
+                    handle_disconnect(&client_id, &clients, app.clone()).await;
                 })
             };
 
@@ -111,6 +112,7 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
 async fn handle_disconnect(
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+    app: Arc<Mutex<App>>,
 ) {
     // Remove the client from the active list
     let client_name = {
@@ -118,6 +120,9 @@ async fn handle_disconnect(
         let client_name = clients_guard.remove(client_id).and_then(|(name, _)| name);
         client_name.unwrap_or_else(|| client_id.to_string()) // Use client_id if no name was set
     };
+
+    // Update App state to remove the disconnected user
+    app.lock().await.remove_connected_user(&client_id).await;
 
     let disconnect_message = format!("{} has disconnected.", client_name);
 
@@ -132,6 +137,7 @@ async fn handle_command(
     command: &str,
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+    app: Arc<Mutex<App>>,
 ) {
     match command.strip_prefix("/") {
         Some("help") => {
@@ -172,6 +178,12 @@ async fn handle_command(
                     .await
                     .insert(client_id.to_string(), (Some(name.clone()), old_tx)); // Update the client name
 
+                // Update the App state with new user info
+                app.lock()
+                    .await
+                    .add_connected_user(client_id.to_string(), name.clone())
+                    .await;
+
                 send_to_client(
                     client_id,
                     &clients,
@@ -183,13 +195,7 @@ async fn handle_command(
 
         Some("list") => {
             /* Get the list of all connected users */
-            let list_of_clients: Vec<String> = (*clients)
-                .lock()
-                .await
-                .values()
-                .filter_map(|(name_opt, _)| name_opt.as_ref())
-                .map(String::clone)
-                .collect();
+            let list_of_clients: Vec<String> = app.lock().await.get_connected_users().await;
 
             /* Convert the list to a single string */
             let names: String = list_of_clients.join(", ");
