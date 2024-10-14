@@ -22,4 +22,8 @@ impl App {
     pub async fn remove_connected_user(&mut self, user_id: &str) -> Option<String> {
         self.connected_users.remove(user_id)
     }
+
+    pub async fn get_connected_users(&self) -> Vec<String> {
+        self.connected_users.values().cloned().collect()
+    }
 }
