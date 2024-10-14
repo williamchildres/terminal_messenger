@@ -1,10 +1,10 @@
 use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::{interval, Duration};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 
 use crate::app::{App, MessageType};
@@ -73,13 +73,30 @@ async fn handle_connection(
         tx_original.send(message.clone()).unwrap();
     }
 
-    let (mut outgoing, mut incoming) = ws_stream.split();
+    let (outgoing, mut incoming) = ws_stream.split();
+    let outgoing = Arc::new(Mutex::new(outgoing)); // Wrap 'outgoing' in Arc<Mutex<_>>, this allows
+                                                   // both ping_task and send_task to gain ownership of 'outgoing'
 
-    // Task for sending messages to the client
+    // Task for sending periodic ping messages to the client
+    let outgoing_clone = outgoing.clone();
+    let ping_task = tokio::spawn(async move {
+        let mut interval = interval(Duration::from_secs(30)); // Adjust interval as needed
+        loop {
+            interval.tick().await;
+            let mut outgoing_lock = outgoing_clone.lock().await; // Acquire lock before sending ping
+            if outgoing_lock.send(Message::Ping(vec![])).await.is_err() {
+                break; // If sending fails, exit the task
+            }
+        }
+    });
+
+    // Task for sending messages from the server to the client
+    let outgoing_clone = outgoing.clone();
     let send_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
             let serialized_message = serde_json::to_string(&message).unwrap();
-            if outgoing
+            let mut outgoing_lock = outgoing_clone.lock().await; // Acquire lock before sending message
+            if outgoing_lock
                 .send(Message::Text(serialized_message))
                 .await
                 .is_err()
@@ -114,6 +131,7 @@ async fn handle_connection(
 
     // Wait for shutdown or any of the tasks to complete
     tokio::select! {
+        _ = ping_task => {},
         _ = send_task => {},
         _ = recv_task => {},
         _ = shutdown.recv() => {
