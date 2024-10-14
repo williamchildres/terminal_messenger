@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
 mod app;
+mod commander;
 mod websocket;
 use crate::app::App;
 use crate::websocket::websocket_task;
