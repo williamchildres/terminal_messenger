@@ -1,14 +1,16 @@
 use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+
 use tokio::net::TcpListener;
+use tokio::sync::broadcast;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 
 use crate::app::App;
 use crate::commander::command_handler::handle_command;
 
-pub async fn websocket_task(app: Arc<Mutex<App>>) {
+pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
     let addr = "127.0.0.1:8080";
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
     println!("Server listening on {}", addr);
@@ -19,96 +21,108 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
     >::new()));
     let history = Arc::new(Mutex::new(VecDeque::<String>::with_capacity(100)));
 
-    while let Ok((stream, _)) = listener.accept().await {
+    loop {
+        let mut shutdown_subscriber = shutdown.subscribe(); // Create shutdown receiver here and make it mutable
+        tokio::select! {
+            // Handle new WebSocket connections
+            Ok((stream, _)) = listener.accept() => {
+                let clients = clients.clone();
+                let history = history.clone();
+                let app = app.clone();
+                let shutdown_subscriber = shutdown.subscribe(); // Each connection gets its own shutdown receiver
+
+                tokio::spawn(handle_connection(stream, clients, history, app, shutdown_subscriber));
+            }
+
+            // Shutdown signal is received
+            _ = shutdown_subscriber.recv() => {
+                println!("Shutting down WebSocket task.");
+                break;
+            }
+        }
+    }
+}
+
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    clients: Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+    history: Arc<Mutex<VecDeque<String>>>,
+    app: Arc<Mutex<App>>,
+    mut shutdown: broadcast::Receiver<()>,
+) {
+    let ws_stream: WebSocketStream<_> = accept_async(stream).await.expect("Error during handshake");
+
+    let client_id = format!("{}", ws_stream.get_ref().peer_addr().unwrap());
+
+    let (tx_original, mut rx) = mpsc::unbounded_channel();
+
+    {
+        let mut clients_guard = clients.lock().await;
+        clients_guard.insert(client_id.clone(), (None, tx_original.clone()));
+    }
+
+    // Send message history to the new client
+    for message in history.lock().await.iter() {
+        tx_original.send(message.clone()).unwrap();
+    }
+
+    let (mut outgoing, mut incoming) = ws_stream.split();
+
+    // Task for sending messages to the client
+    let send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if outgoing.send(Message::Text(message)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Task for receiving messages from the client
+    let recv_task = {
         let clients = clients.clone();
         let history = history.clone();
+        let client_id = client_id.clone();
         let app = app.clone();
 
         tokio::spawn(async move {
-            let ws_stream: WebSocketStream<_> =
-                accept_async(stream).await.expect("Error during handshake");
-            // Get client IP
-            let client_id = format!("{}", ws_stream.get_ref().peer_addr().unwrap());
+            while let Some(Ok(Message::Text(text))) = incoming.next().await {
+                if text.starts_with("/") {
+                    handle_command(&text, &client_id, &clients, app.clone()).await;
+                } else {
+                    // Broadcast to all clients
+                    let client_name = clients.lock().await.get(&client_id).unwrap().0.clone();
+                    let broadcast_message: String;
+                    broadcast_message = match client_name {
+                        Some(name) => format!("{}: {}", name, text),
+                        None => format!("{}: {}", client_id.clone(), text),
+                    };
+                    // Add to history
+                    let mut history_guard = history.lock().await;
+                    if history_guard.len() == 100 {
+                        history_guard.pop_front();
+                    }
+                    history_guard.push_back(broadcast_message.clone());
 
-            // Each client gets its own tx/rx
-            let (tx_original, mut rx) = mpsc::unbounded_channel();
-
-            // Insert client with no name initially
-            {
-                let mut clients_guard = clients.lock().await;
-                clients_guard.insert(client_id.clone(), (None, tx_original.clone()));
-            }
-
-            // Send the message history to the new client
-            for message in history.lock().await.iter() {
-                tx_original.send(message.clone()).unwrap();
-            }
-
-            /* Split the socket into a sender and receiver */
-            let (mut outgoing, mut incoming) = ws_stream.split();
-
-            // Task for sending messages to this client
-            let send_task = tokio::spawn(async move {
-                while let Some(message) = rx.recv().await {
-                    if outgoing.send(Message::Text(message)).await.is_err() {
-                        break;
+                    for (_, (_, tx)) in clients.lock().await.iter() {
+                        tx.send(broadcast_message.clone()).unwrap();
                     }
                 }
-            });
-
-            // Task for receiving messages from this client
-            let recv_task = {
-                let clients = clients.clone();
-                let history = history.clone();
-                let client_id = client_id.clone();
-                let app = app.clone();
-
-                tokio::spawn(async move {
-                    while let Some(Ok(Message::Text(text))) = incoming.next().await {
-                        if text.starts_with("/") {
-                            handle_command(&text, &client_id, &clients, app.clone()).await;
-                        } else {
-                            // Broadcast to all clients
-                            let client_name =
-                                clients.lock().await.get(&client_id).unwrap().0.clone();
-                            let broadcast_message: String;
-                            broadcast_message = match client_name {
-                                Some(name) => format!("{}: {}", name, text),
-                                None => format!("{}: {}", client_id.clone(), text),
-                            };
-                            // Add to history
-                            let mut history_guard = history.lock().await;
-                            if history_guard.len() == 100 {
-                                history_guard.pop_front();
-                            }
-                            history_guard.push_back(broadcast_message.clone());
-
-                            for (_, (_, tx)) in clients.lock().await.iter() {
-                                tx.send(broadcast_message.clone()).unwrap();
-                            }
-                        }
-                    }
-
-                    handle_disconnect(&client_id, &clients, app.clone()).await;
-                })
-            };
-
-            /* Wait for either task to complete. If one completes, cancel the other. */
-            tokio::select! {
-                _= send_task => {},
-                _= recv_task => {},
             }
 
-            // Use "app" after tasks have completed
-            let app_guard = app.lock().await;
+            handle_disconnect(&client_id, &clients, app.clone()).await;
+        })
+    };
 
-            // Now call methods on App struct as needed
-            match app_guard.get_connected_user(&client_id).await {
-                Some(user) => println!("User {} found", user),
-                None => println!("User not found"),
-            }
-        });
+    // Listen for shutdown signals in both send/receive tasks
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
+        _ = shutdown.recv() => {
+            println!("Shutdown received for client: {}", client_id);
+        }
     }
+
+    handle_disconnect(&client_id, &clients, app).await;
 }
 
 async fn handle_disconnect(
