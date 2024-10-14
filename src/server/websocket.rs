@@ -21,6 +21,7 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
     while let Ok((stream, _)) = listener.accept().await {
         let clients = clients.clone();
         let history = history.clone();
+        let app = app.clone();
 
         tokio::spawn(async move {
             let ws_stream: WebSocketStream<_> =
@@ -93,7 +94,16 @@ pub async fn websocket_task(app: Arc<Mutex<App>>) {
             tokio::select! {
                 _= send_task => {},
                 _= recv_task => {},
-            };
+            }
+
+            // Use "app" after tasks have completed
+            let app_guard = app.lock().await;
+
+            // Now call methods on App struct as needed
+            match app_guard.get_connected_user(&client_id).await {
+                Some(user) => println!("User {} found", user),
+                None => println!("User not found"),
+            }
         });
     }
 }
