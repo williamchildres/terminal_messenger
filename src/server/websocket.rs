@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 
-use crate::app::App;
+use crate::app::{App, MessageType};
 use crate::commander::command_handler::handle_command;
 
 pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
@@ -17,9 +17,9 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
 
     let clients = Arc::new(Mutex::new(HashMap::<
         String,
-        (Option<String>, mpsc::UnboundedSender<String>),
+        (Option<String>, mpsc::UnboundedSender<MessageType>),
     >::new()));
-    let history = Arc::new(Mutex::new(VecDeque::<String>::with_capacity(100)));
+    let history = Arc::new(Mutex::new(VecDeque::<MessageType>::with_capacity(100)));
 
     loop {
         let mut shutdown_subscriber = shutdown.subscribe(); // Create shutdown receiver here and make it mutable
@@ -45,14 +45,21 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
 
 async fn handle_connection(
     stream: tokio::net::TcpStream,
-    clients: Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
-    history: Arc<Mutex<VecDeque<String>>>,
+    clients: Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<MessageType>)>>>,
+    history: Arc<Mutex<VecDeque<MessageType>>>,
     app: Arc<Mutex<App>>,
     mut shutdown: broadcast::Receiver<()>,
 ) {
     let ws_stream: WebSocketStream<_> = accept_async(stream).await.expect("Error during handshake");
 
+    // Clone client_id and all Arc values to be used in async tasks
     let client_id = format!("{}", ws_stream.get_ref().peer_addr().unwrap());
+    let client_id_clone = client_id.clone(); // Clone for use inside the async block
+    let client_id_shutdown = client_id.clone(); // Separate clone for use in the shutdown message
+
+    let clients_clone = clients.clone(); // Clone Arc to share with async tasks
+    let history_clone = history.clone(); // Clone Arc for async tasks
+    let app_clone = app.clone(); // Clone Arc to use within the async block
 
     let (tx_original, mut rx) = mpsc::unbounded_channel();
 
@@ -61,7 +68,7 @@ async fn handle_connection(
         clients_guard.insert(client_id.clone(), (None, tx_original.clone()));
     }
 
-    // Send message history to the new client
+    // Send message history to the new client (using MessageType)
     for message in history.lock().await.iter() {
         tx_original.send(message.clone()).unwrap();
     }
@@ -71,63 +78,56 @@ async fn handle_connection(
     // Task for sending messages to the client
     let send_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
-            if outgoing.send(Message::Text(message)).await.is_err() {
+            let serialized_message = serde_json::to_string(&message).unwrap();
+            if outgoing
+                .send(Message::Text(serialized_message))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
     });
 
     // Task for receiving messages from the client
-    let recv_task = {
-        let clients = clients.clone();
-        let history = history.clone();
-        let client_id = client_id.clone();
-        let app = app.clone();
-
-        tokio::spawn(async move {
-            while let Some(Ok(Message::Text(text))) = incoming.next().await {
-                if text.starts_with("/") {
-                    handle_command(&text, &client_id, &clients, app.clone()).await;
-                } else {
-                    // Broadcast to all clients
-                    let client_name = clients.lock().await.get(&client_id).unwrap().0.clone();
-                    let broadcast_message: String;
-                    broadcast_message = match client_name {
-                        Some(name) => format!("{}: {}", name, text),
-                        None => format!("{}: {}", client_id.clone(), text),
-                    };
-                    // Add to history
-                    let mut history_guard = history.lock().await;
-                    if history_guard.len() == 100 {
-                        history_guard.pop_front();
-                    }
-                    history_guard.push_back(broadcast_message.clone());
-
-                    for (_, (_, tx)) in clients.lock().await.iter() {
-                        tx.send(broadcast_message.clone()).unwrap();
-                    }
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(Message::Text(text))) = incoming.next().await {
+            // Deserialize incoming message into MessageType
+            match serde_json::from_str::<MessageType>(&text) {
+                Ok(message) => {
+                    handle_incoming_message(
+                        message,
+                        &client_id_clone,
+                        &clients_clone,
+                        &app_clone,
+                        &history_clone,
+                    )
+                    .await
                 }
+                Err(_) => println!("Invalid message format from client {}", client_id_clone),
             }
+        }
 
-            handle_disconnect(&client_id, &clients, app.clone()).await;
-        })
-    };
+        // Handle disconnection
+        handle_disconnect(&client_id_clone, &clients_clone, app_clone).await;
+    });
 
-    // Listen for shutdown signals in both send/receive tasks
+    // Wait for shutdown or any of the tasks to complete
     tokio::select! {
         _ = send_task => {},
         _ = recv_task => {},
         _ = shutdown.recv() => {
-            println!("Shutdown received for client: {}", client_id);
+            println!("Shutdown received for client: {}", client_id_shutdown); // Using separate clone here
         }
     }
 
+    // Handle disconnect after tasks are done
     handle_disconnect(&client_id, &clients, app).await;
 }
 
 async fn handle_disconnect(
     client_id: &str,
-    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<String>)>>>,
+    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<MessageType>)>>>,
     app: Arc<Mutex<App>>,
 ) {
     // Remove the client from the active list
@@ -140,7 +140,9 @@ async fn handle_disconnect(
     // Update App state to remove the disconnected user
     app.lock().await.remove_connected_user(&client_id).await;
 
-    let disconnect_message = format!("{} has disconnected.", client_name);
+    // Send a system message about the disconnection
+    let disconnect_message =
+        MessageType::SystemMessage(format!("{} has disconnected.", client_name));
 
     // Broadcast the disconnection message to all remaining clients
     for (_, (_, tx)) in clients.lock().await.iter() {
@@ -148,4 +150,51 @@ async fn handle_disconnect(
     }
 
     println!("{} has disconnected", client_name);
+}
+
+async fn handle_incoming_message(
+    message: MessageType,
+    client_id: &str,
+    clients: &Arc<Mutex<HashMap<String, (Option<String>, mpsc::UnboundedSender<MessageType>)>>>,
+    app: &Arc<Mutex<App>>,
+    history: &Arc<Mutex<VecDeque<MessageType>>>,
+) {
+    match message {
+        MessageType::ChatMessage { sender, content } => {
+            println!("Chat message from {}: {}", sender, content);
+
+            let client_name = clients
+                .lock()
+                .await
+                .get(client_id)
+                .and_then(|(name, _)| name.clone())
+                .unwrap_or_else(|| client_id.to_string());
+
+            let broadcast_message = MessageType::ChatMessage {
+                sender: client_name.clone(),
+                content: content.clone(),
+            };
+
+            // Add to history
+            let mut history_guard = history.lock().await;
+            if history_guard.len() == 100 {
+                history_guard.pop_front();
+            }
+            history_guard.push_back(broadcast_message.clone());
+
+            // Broadcast to all clients
+            for (_, (_, tx)) in clients.lock().await.iter() {
+                tx.send(broadcast_message.clone()).unwrap();
+            }
+        }
+
+        MessageType::Command { name, args } => {
+            // Handle commands (e.g., `/name`, `/list`)
+            handle_command(name, args, client_id, clients, app.clone()).await;
+        }
+
+        MessageType::SystemMessage(system_message) => {
+            println!("System message: {}", system_message);
+        }
+    }
 }

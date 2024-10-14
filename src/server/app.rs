@@ -1,6 +1,15 @@
 use crate::HashMap;
+use serde::{Deserialize, Serialize};
+
 pub struct App {
     connected_users: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum MessageType {
+    ChatMessage { sender: String, content: String },
+    Command { name: String, args: Vec<String> },
+    SystemMessage(String),
 }
 
 pub struct UserInfo {

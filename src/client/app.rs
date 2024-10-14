@@ -1,4 +1,5 @@
 //use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 pub enum CurrentScreen {
     Main,
@@ -15,6 +16,13 @@ pub enum Command {
     DirectMessage(String, String), // recipient, message
     Help,
     Unknown(String),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum MessageType {
+    ChatMessage { sender: String, content: String },
+    Command { name: String, args: Vec<String> },
+    SystemMessage(String),
 }
 
 pub struct App {
