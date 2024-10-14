@@ -3,6 +3,12 @@ pub struct App {
     connected_users: HashMap<String, String>,
 }
 
+pub struct UserInfo {
+    pub username: String,
+    pub connection_time: std::time::SystemTime,
+    pub message_count: usize,
+}
+
 impl App {
     pub fn new() -> App {
         // Initialize and return a new instance of `App`
