@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use crate::HashMap;
 use serde::{Deserialize, Serialize};
 
@@ -5,17 +7,17 @@ pub struct App {
     connected_users: HashMap<String, String>,
 }
 
+pub struct UserInfo {
+    pub username: String,
+    pub connection_time: std::time::SystemTime,
+    pub message_count: usize,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MessageType {
     ChatMessage { sender: String, content: String },
     Command { name: String, args: Vec<String> },
     SystemMessage(String),
-}
-
-pub struct UserInfo {
-    pub username: String,
-    pub connection_time: std::time::SystemTime,
-    pub message_count: usize,
 }
 
 impl App {
@@ -40,5 +42,16 @@ impl App {
 
     pub async fn get_connected_users(&self) -> Vec<String> {
         self.connected_users.values().cloned().collect()
+    }
+}
+
+impl UserInfo {
+    pub fn new() -> UserInfo {
+        // Initalize and return a new isntance of 'UserInfo'
+        UserInfo {
+            username: "username".to_string(),
+            connection_time: SystemTime::now(),
+            message_count: 0,
+        }
     }
 }
