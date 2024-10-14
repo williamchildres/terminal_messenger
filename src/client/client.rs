@@ -285,9 +285,11 @@ async fn run_app<B: Backend>(
                                 let username = app.message_input.clone();
                                 app.set_username(username.clone());
 
-                                // Send the `/name` command to the server
-                                let cmd = format!("/name {}", username);
-                                if let Err(e) = write.send(Message::Text(cmd)).await {
+                                let cmd = MessageType::Command {
+                                name: "name".to_string(),
+                                args: vec![username.clone()],
+                                };
+                                if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
                                     log::error!("Failed to send command: {:?}", e);
                                 }
 
