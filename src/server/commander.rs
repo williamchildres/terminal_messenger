@@ -2,7 +2,7 @@
 //  for handling commands and sending messages to clients.
 //  Author: William Childres
 pub mod command_handler {
-    use crate::app::{App, MessageType};
+    use crate::app::{App, MessageType, UserInfo};
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
@@ -55,8 +55,14 @@ pub mod command_handler {
                 }
             }
             "list" => {
-                let list_of_clients: Vec<String> = app.lock().await.get_connected_users().await;
-                let names = list_of_clients.join(", ");
+                let app_clone = Arc::clone(&app);
+                let app_lock = app_clone.lock().await;
+                let connected_users = app_lock.get_connected_users().await;
+                let names = connected_users
+                    .iter()
+                    .map(|user| user.username.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let system_message =
                     MessageType::SystemMessage(format!("Connected users: {}", names));
                 clients
@@ -68,6 +74,7 @@ pub mod command_handler {
                     .send(system_message)
                     .unwrap();
             }
+
             _ => {
                 let system_message = MessageType::SystemMessage(
                     "Unknown command. Type /help for a list of commands.".to_string(),
