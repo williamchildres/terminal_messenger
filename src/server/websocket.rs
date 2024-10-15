@@ -11,6 +11,7 @@ use tokio::sync::broadcast;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Duration};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
+use uuid::Uuid; //  unique IDs for users
 
 use crate::app::{App, MessageType};
 use crate::commander::command_handler::handle_command;
@@ -24,18 +25,16 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
         String,
         mpsc::UnboundedSender<MessageType>,
     >::new()));
-    let history = Arc::new(Mutex::new(VecDeque::<MessageType>::with_capacity(100)));
 
     loop {
         let mut shutdown_subscriber = shutdown.subscribe();
         tokio::select! {
             Ok((stream, _)) = listener.accept() => {
                 let clients = clients.clone();
-                let history = history.clone();
                 let app = app.clone();
                 let shutdown_subscriber = shutdown.subscribe();
 
-                tokio::spawn(handle_connection(stream, clients, history, app, shutdown_subscriber));
+                tokio::spawn(handle_connection(stream, clients, app, shutdown_subscriber));
             }
 
             _ = shutdown_subscriber.recv() => {
@@ -46,34 +45,30 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
     }
 }
 
-use uuid::Uuid; //  unique IDs for users
-
 async fn handle_connection(
     stream: tokio::net::TcpStream,
     clients: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
-    history: Arc<Mutex<VecDeque<MessageType>>>,
     app: Arc<Mutex<App>>,
     mut shutdown: broadcast::Receiver<()>,
 ) {
     let ws_stream: WebSocketStream<_> = accept_async(stream).await.expect("Error during handshake");
 
-    // Generate a unique ID for the client
-    let client_id = Uuid::new_v4().to_string(); // Replaces peer_addr for a unique ID
-
+    let client_id = Uuid::new_v4().to_string();
     let (tx_original, mut rx) = mpsc::unbounded_channel();
     clients
         .lock()
         .await
         .insert(client_id.clone(), tx_original.clone());
 
-    // Add the user to the App immediately with default values (Anonymous)
+    // Add the user to the App with default name
     app.lock()
         .await
         .add_connected_user(client_id.clone(), "Anonymous".to_string())
         .await;
 
-    // Send message history to the new client
-    for message in history.lock().await.iter() {
+    // Send message history to the new client from the App
+    let history = app.lock().await.get_message_history().await;
+    for message in history {
         tx_original.send(message.clone()).unwrap();
     }
 
@@ -140,7 +135,6 @@ async fn handle_connection(
         let client_id_clone = client_id.clone();
         let clients_clone = Arc::clone(&clients);
         let app_clone = Arc::clone(&app);
-        let history_clone = Arc::clone(&history);
         let disconnect_handled_clone = Arc::clone(&disconnect_handled);
 
         tokio::spawn(async move {
@@ -153,7 +147,6 @@ async fn handle_connection(
                                 &client_id_clone,
                                 &clients_clone,
                                 &app_clone,
-                                &history_clone,
                             )
                             .await;
                         }
@@ -209,42 +202,42 @@ async fn handle_incoming_message(
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
     app: &Arc<Mutex<App>>,
-    history: &Arc<Mutex<VecDeque<MessageType>>>,
 ) {
     match message {
         MessageType::ChatMessage { sender: _, content } => {
-            // Handle case where user might not be found in App
-            let maybe_user = app.lock().await.get_connected_user(client_id).await;
-            let client_name = match maybe_user {
-                Some(user_info) => user_info.lock().await.username.clone(),
-                None => {
-                    println!("Error: User with ID {} not found in App.", client_id);
-                    return; // Early return to avoid further errors
-                }
-            };
+            // Fetch username from App
+            let client_name = app
+                .lock()
+                .await
+                .get_connected_user(client_id)
+                .await
+                .unwrap()
+                .lock()
+                .await
+                .username
+                .clone();
 
             let broadcast_message = MessageType::ChatMessage {
                 sender: client_name.clone(),
                 content: content.clone(),
             };
 
-            // Add to history
-            let mut history_guard = history.lock().await;
-            if history_guard.len() == 100 {
-                history_guard.pop_front();
-            }
-            history_guard.push_back(broadcast_message.clone());
+            // Add message to history in App
+            app.lock()
+                .await
+                .add_message_to_history(broadcast_message.clone())
+                .await;
 
             // Broadcast to all clients
             for (_, tx) in clients.lock().await.iter() {
-                if tx.send(broadcast_message.clone()).is_err() {
-                    println!("Error: Failed to send message to client.");
-                }
+                tx.send(broadcast_message.clone()).unwrap();
             }
         }
+
         MessageType::Command { name, args } => {
             handle_command(name, args, client_id, clients, app.clone()).await;
         }
+
         MessageType::SystemMessage(system_message) => {
             println!("System message: {}", system_message);
         }
@@ -259,33 +252,27 @@ async fn handle_disconnection(
 ) {
     let mut handled = disconnect_handled.lock().await;
     if *handled {
-        return; // Disconnection already handled
+        return;
     }
     *handled = true;
 
-    // Handle case where user might not be found in App
-    let maybe_user = app.lock().await.get_connected_user(client_id).await;
-    let client_name = match maybe_user {
-        Some(user_info) => user_info.lock().await.username.clone(),
-        None => {
-            println!(
-                "Error: User with ID {} not found in App during disconnection.",
-                client_id
-            );
-            return; // Early return if the user is not found
-        }
-    };
+    let client_name = app
+        .lock()
+        .await
+        .get_connected_user(client_id)
+        .await
+        .unwrap()
+        .lock()
+        .await
+        .username
+        .clone();
 
-    // Remove the user from the App
     app.lock().await.remove_connected_user(client_id).await;
 
-    // Broadcast that the user has disconnected
     let disconnect_message =
         MessageType::SystemMessage(format!("{} has disconnected.", client_name));
     for (_, tx) in clients.lock().await.iter() {
-        if tx.send(disconnect_message.clone()).is_err() {
-            println!("Error: Failed to send disconnection message.");
-        }
+        tx.send(disconnect_message.clone()).unwrap();
     }
 
     println!("{} has disconnected", client_name);
