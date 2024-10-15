@@ -1,21 +1,19 @@
-####################################################################
-##################### Running the Code #############################
+## Running the Code
 
 This code base packages both client and server binaries.
 
 Run server with cargo run --bin server
 
 Run client with cargo run --bin client /tui
-the /tui argument is important, as it controls launching of the TUI. 
+the /tui argument is important, as it controls launching of the TUI.
 
 The base terminal version of the application (currently broken) can be run with same command, without the /tui arguement
 
-####################################################################
-##################### Logging ######################################
+## Logging
 
 You can control the log level and format by setting environment variables before running your application. For example, you can set `RUST_LOG` to control the log level and format:
 
-``` bash
+```bash
 RUST_LOG=info cargo run
 ```
 
@@ -23,7 +21,7 @@ This sets the log level to `info`, which will display all messages at or above t
 
 If you want to redirect the log output to a file instead of displaying it in the console, you can use shell redirection as follows:
 
-``` bash
+```bash
 RUST_LOG=info cargo run > logfile.txt 2>&1
 ```
 
