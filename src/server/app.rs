@@ -1,3 +1,5 @@
+//  This file contains the definition of the `App` struct, which represents the server state.
+//  It also defines the `UserInfo` struct and an enumeration of message types.
 use std::time::SystemTime;
 
 use crate::HashMap;
@@ -11,6 +13,7 @@ pub struct UserInfo {
     pub username: String,
     pub connection_time: std::time::SystemTime,
     pub message_count: usize,
+    pub color: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -52,6 +55,7 @@ impl UserInfo {
             username: "username".to_string(),
             connection_time: SystemTime::now(),
             message_count: 0,
+            color: "default".to_string(),
         }
     }
 }

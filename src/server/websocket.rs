@@ -1,3 +1,8 @@
+//  This file contains functions related to handling WebSocket connections.
+//  It includes a function for starting the WebSocket task,
+//  handling individual connections, and processing incoming and outgoing messages.
+//
+//  Author: William Childres
 use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;

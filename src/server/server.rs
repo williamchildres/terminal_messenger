@@ -1,3 +1,7 @@
+//  server.rs
+//  This is the main file that sets up the server and handles shutdown signals.
+//  It spawns the WebSocket task and listens for shutdown signals using `tokio::select!`.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
