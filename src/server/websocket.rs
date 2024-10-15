@@ -4,11 +4,10 @@
 //
 //  Author: William Childres
 use futures_util::{SinkExt, StreamExt};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time::{interval, Duration};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 use uuid::Uuid; //  unique IDs for users

@@ -2,7 +2,7 @@
 //  for handling commands and sending messages to clients.
 //  Author: William Childres
 pub mod command_handler {
-    use crate::app::{App, MessageType, UserInfo};
+    use crate::app::{App, MessageType};
     use std::collections::HashMap;
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
@@ -11,7 +11,7 @@ pub mod command_handler {
         command_name: String,
         args: Vec<String>,
         client_id: &str,
-        clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>, // Remove Option<String>
+        clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
         app: Arc<Mutex<App>>,
     ) {
         println!(
@@ -70,16 +70,6 @@ pub mod command_handler {
                     sender.send(system_message).unwrap();
                 }
             }
-        }
-    }
-
-    pub async fn send_to_client(
-        client_id: &str,
-        clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<String>>>>,
-        message: String,
-    ) {
-        if let Some(tx) = clients.lock().await.get(client_id) {
-            tx.send(message).unwrap();
         }
     }
 }
