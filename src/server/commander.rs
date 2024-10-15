@@ -58,21 +58,27 @@ pub mod command_handler {
                 let app_clone = Arc::clone(&app);
                 let app_lock = app_clone.lock().await;
                 let connected_users = app_lock.get_connected_users().await;
-                let names = connected_users
-                    .iter()
-                    .map(|user| user.username.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+
+                // Create a vector to hold the usernames of connected users
+                let mut names = Vec::new();
+
+                // Iterate over each connected user and get their username
+                for user in connected_users.iter() {
+                    let user_lock = user.lock().await;
+                    names.push(user_lock.username.clone());
+                }
+
+                // Join the usernames into a single string separated by commas
+                let names_string = names.join(", ");
+
+                // Create a system message with the list of connected users
                 let system_message =
-                    MessageType::SystemMessage(format!("Connected users: {}", names));
-                clients
-                    .lock()
-                    .await
-                    .get(client_id)
-                    .unwrap()
-                    .1
-                    .send(system_message)
-                    .unwrap();
+                    MessageType::SystemMessage(format!("Connected users: {}", names_string));
+
+                // Get the client's sender channel using `get` instead of using `unwrap`
+                if let Some((_name, sender)) = clients.lock().await.get(client_id) {
+                    sender.send(system_message).unwrap();
+                }
             }
 
             _ => {
