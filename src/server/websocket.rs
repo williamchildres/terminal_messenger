@@ -215,7 +215,7 @@ async fn handle_connection(
     handle_disconnection(disconnect_handled, &client_id, &clients, app).await;
 }
 
-// Handle disconnection logic (only once)
+// Handle disconnection logic
 async fn handle_disconnection(
     disconnect_handled: Arc<Mutex<bool>>,
     client_id: &str,
