@@ -1,6 +1,7 @@
 //  This is the main file that sets up the server and handles shutdown signals.
 //  It spawns the WebSocket task and listens for shutdown signals using `tokio::select!`.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
@@ -12,6 +13,14 @@ use crate::app::App;
 use crate::websocket::websocket_task;
 #[tokio::main]
 async fn main() {
+    // Load port from ENV or default to 8080
+    let port:u16 = std::env::var("PORT")
+        .unwrap_or("8080".into())
+        .parse()
+        .expect("PORT must be a number");
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+
     // Initialize server state
     let app = Arc::new(Mutex::new(App::new()));
 
@@ -22,7 +31,7 @@ async fn main() {
     let shutdown_tx_websocket = shutdown_tx.clone();
 
     // Start the WebSocket task
-    let websocket_handle = tokio::spawn(websocket_task(app.clone(), shutdown_tx_websocket));
+    let websocket_handle = tokio::spawn(websocket_task(addr, app.clone(), shutdown_tx_websocket));
 
     // Listen for shutdown signal (Ctrl+C)
     tokio::select! {
