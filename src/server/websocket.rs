@@ -9,8 +9,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::time::{interval, timeout, Duration};
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
+use tokio::time::{timeout, Duration};
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 use uuid::Uuid; //  unique IDs for users
 
 use crate::app::{App, MessageType};
@@ -180,8 +180,7 @@ async fn handle_connection(
                                 message,
                                 &client_id_clone,
                                 &clients_clone,
-                                &app_clone,
-                                batch_tx.clone(), // Pass batch_tx to handle_incoming_message
+                                &app_clone, // Pass batch_tx to handle_incoming_message
                             )
                             .await;
                         }
@@ -237,8 +236,7 @@ async fn handle_incoming_message(
     message: MessageType,
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
-    app: &Arc<Mutex<App>>,
-    batch_tx: mpsc::Sender<MessageType>, // Batch processing sender
+    app: &Arc<Mutex<App>>, // Batch processing sender
 ) {
     match message {
         MessageType::ChatMessage { sender: _, content } => {
