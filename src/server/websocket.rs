@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, timeout, Duration};
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
 use uuid::Uuid; //  unique IDs for users
 
@@ -25,6 +25,12 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
         mpsc::UnboundedSender<MessageType>,
     >::new()));
 
+    // Channel for sending messages to the batch processor
+    let (batch_tx, batch_rx) = mpsc::channel(100);
+
+    // Spawn the batch processing task
+    tokio::spawn(batch_send_task(clients.clone(), batch_rx));
+
     loop {
         let mut shutdown_subscriber = shutdown.subscribe();
         tokio::select! {
@@ -33,7 +39,7 @@ pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()
                 let app = app.clone();
                 let shutdown_subscriber = shutdown.subscribe();
 
-                tokio::spawn(handle_connection(stream, clients, app, shutdown_subscriber));
+                tokio::spawn(handle_connection(stream, clients, app, shutdown_subscriber, batch_tx.clone())); // Pass the batch_tx to handle_connection
             }
 
             _ = shutdown_subscriber.recv() => {
@@ -49,8 +55,9 @@ async fn handle_connection(
     clients: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
     app: Arc<Mutex<App>>,
     mut shutdown: broadcast::Receiver<()>,
+    batch_tx: mpsc::Sender<MessageType>, // Add batch_tx here
 ) {
-    let ws_stream: WebSocketStream<_> = accept_async(stream).await.expect("Error during handshake");
+    let ws_stream = accept_async(stream).await.expect("Error during handshake");
 
     let client_id = Uuid::new_v4().to_string();
     let (tx_original, mut rx) = mpsc::unbounded_channel();
@@ -73,8 +80,12 @@ async fn handle_connection(
 
     let (outgoing, mut incoming) = ws_stream.split();
     let outgoing = Arc::new(Mutex::new(outgoing));
-
     let disconnect_handled = Arc::new(Mutex::new(false));
+
+    // Create a channel for ping task to detect pong responses
+    let (pong_tx, mut pong_rx) = mpsc::channel(1); // Use bounded channel to ensure order
+
+    // Ping task
     let ping_task = {
         let outgoing_clone = Arc::clone(&outgoing);
         let client_id_clone = client_id.clone();
@@ -83,24 +94,46 @@ async fn handle_connection(
         let disconnect_handled_clone = Arc::clone(&disconnect_handled);
 
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_secs(30));
+            let mut ping_interval = tokio::time::interval(Duration::from_secs(30)); // Ping every 30 seconds
+            let pong_timeout = Duration::from_secs(10); // Wait 10 seconds for Pong
+
             loop {
-                interval.tick().await;
+                ping_interval.tick().await;
+
                 let mut outgoing_lock = outgoing_clone.lock().await;
+
+                // Send Ping message to the client
                 if outgoing_lock.send(Message::Ping(vec![])).await.is_err() {
+                    println!("Error sending Ping to client: {}", client_id_clone);
                     break;
                 }
+                drop(outgoing_lock); // Release the lock before waiting for Pong
+
+                // Wait for Pong within the timeout period
+                match timeout(pong_timeout, pong_rx.recv()).await {
+                    Ok(Some(())) => {
+                        println!("Pong received from client: {}", client_id_clone);
+                    }
+                    _ => {
+                        println!(
+                            "Client {} is unresponsive. Disconnecting...",
+                            client_id_clone
+                        );
+                        handle_disconnection(
+                            disconnect_handled_clone,
+                            &client_id_clone,
+                            &clients_clone,
+                            Arc::clone(&app_clone),
+                        )
+                        .await;
+                        break;
+                    }
+                }
             }
-            handle_disconnection(
-                disconnect_handled_clone,
-                &client_id_clone,
-                &clients_clone,
-                Arc::clone(&app_clone),
-            )
-            .await;
         })
     };
 
+    // Task for sending messages
     let send_task = {
         let outgoing_clone = Arc::clone(&outgoing);
         let client_id_clone = client_id.clone();
@@ -130,11 +163,13 @@ async fn handle_connection(
         })
     };
 
+    // Task for receiving messages and detecting Pong responses
     let recv_task = {
         let client_id_clone = client_id.clone();
         let clients_clone = Arc::clone(&clients);
         let app_clone = Arc::clone(&app);
         let disconnect_handled_clone = Arc::clone(&disconnect_handled);
+        let pong_tx_clone = pong_tx.clone(); // Clone pong sender for use in task
 
         tokio::spawn(async move {
             while let Some(result) = incoming.next().await {
@@ -146,6 +181,7 @@ async fn handle_connection(
                                 &client_id_clone,
                                 &clients_clone,
                                 &app_clone,
+                                batch_tx.clone(), // Pass batch_tx to handle_incoming_message
                             )
                             .await;
                         }
@@ -157,7 +193,8 @@ async fn handle_connection(
                         println!("Received Ping from client {}", client_id_clone);
                     }
                     Ok(Message::Pong(_)) => {
-                        println!("Received Pong from client {}", client_id_clone);
+                        // Notify ping task that Pong was received
+                        let _ = pong_tx_clone.send(()).await;
                     }
                     Ok(_) => {
                         println!(
@@ -201,6 +238,7 @@ async fn handle_incoming_message(
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
     app: &Arc<Mutex<App>>,
+    batch_tx: mpsc::Sender<MessageType>, // Add a sender for the batch task
 ) {
     match message {
         MessageType::ChatMessage { sender: _, content } => {
@@ -227,9 +265,9 @@ async fn handle_incoming_message(
                 .add_message_to_history(broadcast_message.clone())
                 .await;
 
-            // Broadcast to all clients
-            for (_, tx) in clients.lock().await.iter() {
-                tx.send(broadcast_message.clone()).unwrap();
+            // Send the message to the batch processor
+            if batch_tx.send(broadcast_message).await.is_err() {
+                println!("Error: Failed to send message to batch processor.");
             }
         }
 
@@ -239,6 +277,37 @@ async fn handle_incoming_message(
 
         MessageType::SystemMessage(system_message) => {
             println!("System message: {}", system_message);
+        }
+    }
+}
+
+async fn batch_send_task(
+    clients: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
+    mut rx: mpsc::Receiver<MessageType>, // Receives messages for broadcasting
+) {
+    let mut message_batch = Vec::new(); // Buffer to store batched messages
+    let batch_interval = Duration::from_millis(100); // Define batch interval (100ms)
+
+    loop {
+        tokio::select! {
+            // Collect messages to batch
+            Some(message) = rx.recv() => {
+                message_batch.push(message);
+            }
+            _ = tokio::time::sleep(batch_interval) => {
+                if !message_batch.is_empty() {
+                    // If there are messages, broadcast them to all clients
+                    let clients = clients.lock().await;
+                    for (_, tx) in clients.iter() {
+                        for message in &message_batch {
+                            if tx.send(message.clone()).is_err() {
+                                println!("Failed to send message to a client.");
+                            }
+                        }
+                    }
+                    message_batch.clear(); // Clear the batch after sending
+                }
+            }
         }
     }
 }
