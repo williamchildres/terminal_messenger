@@ -238,7 +238,7 @@ async fn handle_incoming_message(
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
     app: &Arc<Mutex<App>>,
-    batch_tx: mpsc::Sender<MessageType>, // Add a sender for the batch task
+    batch_tx: mpsc::Sender<MessageType>, // Batch processing sender
 ) {
     match message {
         MessageType::ChatMessage { sender: _, content } => {
@@ -265,9 +265,24 @@ async fn handle_incoming_message(
                 .add_message_to_history(broadcast_message.clone())
                 .await;
 
-            // Send the message to the batch processor
-            if batch_tx.send(broadcast_message).await.is_err() {
-                println!("Error: Failed to send message to batch processor.");
+            // Broadcast to all clients
+            let mut clients_lock = clients.lock().await;
+            let disconnected_clients: Vec<String> = clients_lock
+                .iter()
+                .filter_map(|(id, tx)| {
+                    if tx.send(broadcast_message.clone()).is_err() {
+                        // If sending fails, mark this client as disconnected
+                        Some(id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Remove disconnected clients
+            for id in disconnected_clients {
+                clients_lock.remove(&id);
+                println!("Removed disconnected client: {}", id);
             }
         }
 
@@ -320,10 +335,11 @@ async fn handle_disconnection(
 ) {
     let mut handled = disconnect_handled.lock().await;
     if *handled {
-        return;
+        return; // Disconnection already handled
     }
     *handled = true;
 
+    // Log and remove the user from the app
     let client_name = app
         .lock()
         .await
@@ -337,10 +353,15 @@ async fn handle_disconnection(
 
     app.lock().await.remove_connected_user(client_id).await;
 
+    // Remove the client from the list of connected clients
+    clients.lock().await.remove(client_id);
+
+    // Broadcast that the user has disconnected
     let disconnect_message =
         MessageType::SystemMessage(format!("{} has disconnected.", client_name));
     for (_, tx) in clients.lock().await.iter() {
-        tx.send(disconnect_message.clone()).unwrap();
+        // Send the message to all connected clients
+        let _ = tx.send(disconnect_message.clone());
     }
 
     println!("{} has disconnected", client_name);
