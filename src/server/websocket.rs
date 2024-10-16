@@ -5,6 +5,7 @@
 //  Author: William Childres
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
@@ -15,10 +16,9 @@ use uuid::Uuid; //  unique IDs for users
 use crate::app::{App, MessageType};
 use crate::commander::command_handler::handle_command;
 
-pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
-    let addr = "127.0.0.1:8080";
+pub async fn websocket_task(addr:SocketAddr, app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
-    println!("Server listening on {}", addr);
+    println!("Server listening on {}", addr.to_string());
 
     let clients = Arc::new(Mutex::new(HashMap::<
         String,

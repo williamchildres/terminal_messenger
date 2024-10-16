@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
+name = "master"
+path = "src/master/master.rs"
+
+[[bin]]
 name = "server"
 path = "src/server/server.rs"
 
