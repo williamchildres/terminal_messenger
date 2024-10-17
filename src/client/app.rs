@@ -8,6 +8,7 @@ pub enum CurrentScreen {
     HelpMenu,
     Exiting,
     Disconnected,
+    LoggingIn,
 }
 
 pub enum Command {
@@ -27,6 +28,7 @@ pub enum MessageType {
 
 pub struct App {
     pub username: Option<String>,      // Keep track of username
+    pub password: Option<String>,      // Password field for login
     pub message_input: String,         // the currently being edited message value.
     pub current_screen: CurrentScreen, // the current screen the user is looking at, and will later determine what is rendered.
     pub messages: Vec<String>,
@@ -37,13 +39,14 @@ impl App {
     pub fn new() -> App {
         App {
             username: None, // Start without a username
+            password: None, // Start without a password
             message_input: String::new(),
             current_screen: CurrentScreen::Main,
             messages: Vec::<String>::new(),
             scroll_offset: 0,
         }
     }
-    pub fn handle_websocket_message(&mut self, message: String) {
+    pub fn handle_websocket_message(&mut self, message: &str) {
         if let Ok(message_type) = serde_json::from_str::<MessageType>(&message) {
             match message_type {
                 MessageType::ChatMessage { sender, content } => {
@@ -51,12 +54,21 @@ impl App {
                     self.messages.push(formatted_message);
                 }
                 MessageType::SystemMessage(system_message) => {
-                    self.messages.push(system_message);
+                    if system_message.contains("Authentication successful") {
+                        self.messages.push("You are authenticated!".to_string());
+                        self.current_screen = CurrentScreen::Main;
+                    } else if system_message.contains("Authentication failed") {
+                        self.messages
+                            .push("Authentication failed. Please try again.".to_string());
+                        self.current_screen = CurrentScreen::LoggingIn;
+                    } else {
+                        self.messages.push(system_message);
+                    }
                 }
                 _ => {}
             }
         } else {
-            self.messages.push(message);
+            self.messages.push(message.to_string());
         }
 
         self.scroll_offset = 0;

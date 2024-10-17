@@ -37,6 +37,36 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         return; // Skip the rest of the UI rendering
     }
 
+    // Handle login flow (username and password input)
+    if let CurrentScreen::LoggingIn = app.current_screen {
+        frame.render_widget(Clear, frame.area()); // Clear the screen
+
+        let block = Block::default()
+            .title("Login")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray));
+
+        // Determine the prompt based on whether username or password is being entered
+        let prompt = if app.username.is_none() {
+            "Enter your username:"
+        } else {
+            "Enter your password:"
+        };
+
+        let paragraph = Paragraph::new(format!("{}{}", prompt, app.message_input.as_str()))
+            .block(block)
+            .wrap(Wrap { trim: true });
+
+        let area = centered_rect(60, 25, frame.area());
+        frame.render_widget(paragraph, area);
+
+        // Set cursor position inside the login box
+        let cursor_x = area.x + prompt.len() as u16 + app.message_input.len() as u16 + 1;
+        let cursor_y = area.y + 1;
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+        return; // Skip the rest of the UI rendering
+    }
+
     const TITLE: &str = "TUI Messenger";
     const KEY_HINT: &str = "(h) help";
 
