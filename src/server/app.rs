@@ -12,6 +12,7 @@ pub struct App {
     connected_users: HashMap<String, Arc<Mutex<UserInfo>>>,
     // Global message history (last 100 messages)
     message_history: VecDeque<MessageType>,
+    user_credentials: HashMap<String, UserCredentials>, // Add this for storing credentials
 }
 
 pub struct UserInfo {
@@ -19,6 +20,11 @@ pub struct UserInfo {
     pub connection_time: SystemTime,
     pub message_count: usize,
     pub color: String,
+}
+
+pub struct UserCredentials {
+    pub username: String,
+    pub password: String, // Ideally store hashed passwords
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -30,10 +36,37 @@ pub enum MessageType {
 
 impl App {
     pub fn new() -> App {
+        let mut user_credentials = HashMap::new();
+
+        // For simplicity, let's add a couple of users (these should be hashed passwords)
+        user_credentials.insert(
+            "user1".to_string(),
+            UserCredentials {
+                username: "user1".to_string(),
+                password: "password1".to_string(),
+            },
+        );
+        user_credentials.insert(
+            "user2".to_string(),
+            UserCredentials {
+                username: "user2".to_string(),
+                password: "password2".to_string(),
+            },
+        );
+
         App {
             connected_users: HashMap::new(),
             message_history: VecDeque::with_capacity(100), // Store up to 100 messages
+            user_credentials,                              // finitialize the credentials
         }
+    }
+
+    // Method to verify username and password
+    pub fn authenticate_user(&self, username: &str, password: &str) -> bool {
+        if let Some(credentials) = self.user_credentials.get(username) {
+            return credentials.password == password; // Verify credentials (ideally hash comparison)
+        }
+        false
     }
 
     // Add a connected user by UUID
