@@ -5,20 +5,20 @@
 //  Author: William Childres
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::time::{interval, timeout, Duration};
-use tokio_tungstenite::{accept_async, tungstenite::protocol::Message, WebSocketStream};
+use tokio::time::{timeout, Duration};
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 use uuid::Uuid; //  unique IDs for users
 
 use crate::app::{App, MessageType};
 use crate::commander::command_handler::handle_command;
 
-pub async fn websocket_task(app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
-    let addr = "127.0.0.1:8080";
+pub async fn websocket_task(addr:SocketAddr, app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
-    println!("Server listening on {}", addr);
+    println!("Server listening on {}", addr.to_string());
 
     let clients = Arc::new(Mutex::new(HashMap::<
         String,
@@ -240,8 +240,7 @@ async fn handle_connection(
                                 message,
                                 &client_id_clone,
                                 &clients_clone,
-                                &app_clone,
-                                batch_tx.clone(), // Pass batch_tx to handle_incoming_message
+                                &app_clone, // Pass batch_tx to handle_incoming_message
                             )
                             .await;
                         }
@@ -297,8 +296,7 @@ async fn handle_incoming_message(
     message: MessageType,
     client_id: &str,
     clients: &Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
-    app: &Arc<Mutex<App>>,
-    batch_tx: mpsc::Sender<MessageType>, // Batch processing sender
+    app: &Arc<Mutex<App>>, // Batch processing sender
 ) {
     match message {
         MessageType::ChatMessage { sender: _, content } => {
