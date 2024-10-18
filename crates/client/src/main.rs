@@ -136,7 +136,8 @@ async fn run_app<B: Backend>(
     rx: &mut mpsc::Receiver<Event>,
 ) -> io::Result<bool> {
     // Specify the server URL to connect to
-    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
+    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
+    // ws://127.0.0.1:8080
 
     // Establish a WebSocket connection with the server
     let (ws_stream, _) = connect_async(server_url)
@@ -145,10 +146,10 @@ async fn run_app<B: Backend>(
 
     let (mut write, mut read) = ws_stream.split();
 
-    // Initally, set the app state to login
+    // Initially, set the app state to login
     app.current_screen = CurrentScreen::LoggingIn;
 
-    // Initalize UI
+    // Initialize UI
     terminal
         .draw(|f| ui(f, app))
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -168,8 +169,15 @@ async fn run_app<B: Backend>(
                     if text.contains("Authentication successful") {
                         app.current_screen = CurrentScreen::Main;
                     } else if text.contains("Authentication failed") {
-                        app.current_screen = CurrentScreen::LoggingIn;
-                    }
+                        if app.failed_login_attempts < 5 {
+                            app.current_screen = CurrentScreen::LoggingIn;  // Retry login
+                            app.username = None;
+
+                        } else {
+                            app.current_screen = CurrentScreen::Disconnected;  // Disconnect after max attempts
+                        }
+                                terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                 }
                 } else if let Some(Ok(Message::Close(_))) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -179,6 +187,7 @@ async fn run_app<B: Backend>(
                     log::error!("WebSocket error: {:?}", e);
                 }
             }
+
             // Handle user input events
             Some(event) = rx.recv() => {
                 if let Event::Key(key) = event {
@@ -206,6 +215,8 @@ async fn run_app<B: Backend>(
                                             log::error!("Failed to send authentication: {:?}", e);
                                         }
                                     }
+                                    // Switch back to prompting for a username
+                                    app.username = None;
                                 }
                             }
                             KeyCode::Backspace => {
@@ -240,7 +251,6 @@ async fn run_app<B: Backend>(
                                 return Ok(true);
                             }
                             KeyCode::Char('n') | KeyCode::Char('q') => {
-                                //return Ok(false);
                                 app.current_screen = CurrentScreen::Main;
                             }
                             _ => {}
@@ -289,7 +299,6 @@ async fn run_app<B: Backend>(
                                          }
                                      },
                                      Command::Help => {
-                                         // Handle help locally
                                          app.current_screen = CurrentScreen::HelpMenu;
                                      },
                                      Command::Unknown(input) => {
@@ -311,11 +320,9 @@ async fn run_app<B: Backend>(
                                 app.message_input.pop();
                             }
                             KeyCode::Esc => {
-                                // Cancel message composing and go back to the main screen
                                 app.current_screen = CurrentScreen::Main;
                             }
                             KeyCode::Char(c) => {
-                                // Add the character to the message input
                                 app.message_input.push(c);
                             }
                             _ => {}
@@ -354,7 +361,6 @@ async fn run_app<B: Backend>(
                             _ => {}
                         },
                     }
-                    // Redraw the UI after handling the user input event
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 } else if let Event::Resize(_, _) = event {
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -366,11 +372,8 @@ async fn run_app<B: Backend>(
 
 async fn connect_to_server(
 ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Box<dyn std::error::Error>> {
-    // Specify the server URL to connect to
-    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
-
-    // Establish a WebSocket connection with the server
+    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
+    // messenger.uhes.dev
     let (ws_stream, _) = connect_async(server_url).await?;
-
     Ok(ws_stream)
 }
