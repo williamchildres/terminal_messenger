@@ -506,26 +506,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "master"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "futures",
- "futures-util",
- "libc",
- "log",
- "ratatui",
- "serde",
- "serde_json",
- "signal-hook",
- "tokio",
- "tokio-tungstenite",
- "tungstenite",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
