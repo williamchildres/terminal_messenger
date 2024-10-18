@@ -145,20 +145,35 @@ async fn run_app<B: Backend>(
 
     let (mut write, mut read) = ws_stream.split();
 
+    // Initally, set the app state to login
+    app.current_screen = CurrentScreen::LoggingIn;
+
+    // Initalize UI
+    terminal
+        .draw(|f| ui(f, app))
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
     loop {
         // Use tokio::select! to handle both WebSocket messages and terminal events
         tokio::select! {
             // Handle WebSocket messages
             ws_msg = read.next() => {
                 if let Some(Ok(Message::Text(text))) = ws_msg {
-                    // Update app state with the received WebSocket message
-                    app.handle_websocket_message(text);
+                    app.handle_websocket_message(&text);
+
                     // Redraw the UI after receiving the message
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                }   else if let Some(Ok(Message::Close(_))) = ws_msg {
+
+                    // If the message indicates successful authentication, switch to main screen
+                    if text.contains("Authentication successful") {
+                        app.current_screen = CurrentScreen::Main;
+                    } else if text.contains("Authentication failed") {
+                        app.current_screen = CurrentScreen::LoggingIn;
+                    }
+                } else if let Some(Ok(Message::Close(_))) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                }   else if let Some(Err(e)) = ws_msg {
+                } else if let Some(Err(e)) = ws_msg {
                     app.current_screen = CurrentScreen::Disconnected;
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                     log::error!("WebSocket error: {:?}", e);
@@ -171,6 +186,37 @@ async fn run_app<B: Backend>(
                         continue;
                     }
                     match app.current_screen {
+                         CurrentScreen::LoggingIn => match key.code {
+                            KeyCode::Enter => {
+                                // Assume the first input is username, second is password
+                                if app.username.is_none() {
+                                    // First, set username
+                                    app.username = Some(app.message_input.clone());
+                                    app.message_input.clear(); // Clear input for password entry
+                                    app.messages.push("Enter your password:".to_string());
+                                } else {
+                                    // Now set password and try to authenticate
+                                    app.password = Some(app.message_input.clone());
+                                    app.message_input.clear();
+
+                                    // Send "username:password" to the server as SystemMessage
+                                    if let (Some(username), Some(password)) = (&app.username, &app.password) {
+                                        let auth_message = MessageType::SystemMessage(format!("{}:{}", username, password));
+                                        if let Err(e) = write.send(Message::Text(serde_json::to_string(&auth_message).unwrap())).await {
+                                            log::error!("Failed to send authentication: {:?}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                app.message_input.pop();  // Handle backspace for login input
+                            }
+                            KeyCode::Char(c) => {
+                                app.message_input.push(c);  // Handle character input for login
+                            }
+                            _ => {}
+                        },
+
                         CurrentScreen::Main => match key.code {
                             KeyCode::Enter =>{
                                 app.current_screen = CurrentScreen::ComposingMessage;

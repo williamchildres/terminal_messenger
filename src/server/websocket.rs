@@ -55,22 +55,64 @@ async fn handle_connection(
     clients: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<MessageType>>>>,
     app: Arc<Mutex<App>>,
     mut shutdown: broadcast::Receiver<()>,
-    batch_tx: mpsc::Sender<MessageType>, // Add batch_tx here
+    batch_tx: mpsc::Sender<MessageType>,
 ) {
     let ws_stream = accept_async(stream).await.expect("Error during handshake");
 
     let client_id = Uuid::new_v4().to_string();
     let (tx_original, mut rx) = mpsc::unbounded_channel();
-    clients
-        .lock()
-        .await
-        .insert(client_id.clone(), tx_original.clone());
 
-    // Add the user to the App with default name
-    app.lock()
-        .await
-        .add_connected_user(client_id.clone(), "Anonymous".to_string())
-        .await;
+    let (outgoing, mut incoming) = ws_stream.split();
+    let outgoing = Arc::new(Mutex::new(outgoing));
+
+    // Step 1: Authenticate the user before proceeding
+    let mut authenticated = false;
+    while let Some(result) = incoming.next().await {
+        if let Ok(Message::Text(text)) = result {
+            if let Ok(MessageType::SystemMessage(auth_msg)) =
+                serde_json::from_str::<MessageType>(&text)
+            {
+                // Expecting a username and password in the form "username:password"
+                let creds: Vec<&str> = auth_msg.split(':').collect();
+                if creds.len() == 2 {
+                    let username = creds[0];
+                    let password = creds[1];
+
+                    // Authenticate user
+                    let is_authenticated = app.lock().await.authenticate_user(username, password);
+                    if is_authenticated {
+                        authenticated = true;
+
+                        // Add the user to the App with authenticated username
+                        app.lock()
+                            .await
+                            .add_connected_user(client_id.clone(), username.to_string())
+                            .await;
+
+                        let success_message =
+                            MessageType::SystemMessage("Authentication successful".to_string());
+                        tx_original.send(success_message).unwrap();
+                        clients
+                            .lock()
+                            .await
+                            .insert(client_id.clone(), tx_original.clone());
+
+                        break; // User is authenticated, proceed
+                    } else {
+                        let fail_message =
+                            MessageType::SystemMessage("Authentication failed".to_string());
+                        tx_original.send(fail_message).unwrap();
+                        return; // Close connection on failure
+                    }
+                }
+            }
+        }
+    }
+
+    if !authenticated {
+        println!("Authentication failed, closing connection");
+        return;
+    }
 
     // Send message history to the new client from the App
     let history = app.lock().await.get_message_history().await;
@@ -78,8 +120,6 @@ async fn handle_connection(
         tx_original.send(message.clone()).unwrap();
     }
 
-    let (outgoing, mut incoming) = ws_stream.split();
-    let outgoing = Arc::new(Mutex::new(outgoing));
     let disconnect_handled = Arc::new(Mutex::new(false));
 
     // Create a channel for ping task to detect pong responses
