@@ -136,7 +136,8 @@ async fn run_app<B: Backend>(
     rx: &mut mpsc::Receiver<Event>,
 ) -> io::Result<bool> {
     // Specify the server URL to connect to
-    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
+    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
+    // ws://127.0.0.1:8080
 
     // Establish a WebSocket connection with the server
     let (ws_stream, _) = connect_async(server_url)
@@ -371,7 +372,8 @@ async fn run_app<B: Backend>(
 
 async fn connect_to_server(
 ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Box<dyn std::error::Error>> {
-    let server_url = Url::parse("ws://127.0.0.1:8080").unwrap();
+    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
+    // messenger.uhes.dev
     let (ws_stream, _) = connect_async(server_url).await?;
     Ok(ws_stream)
 }
