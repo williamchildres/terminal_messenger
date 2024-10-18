@@ -33,6 +33,7 @@ pub struct App {
     pub current_screen: CurrentScreen, // the current screen the user is looking at, and will later determine what is rendered.
     pub messages: Vec<String>,
     pub scroll_offset: usize,
+    pub failed_login_attempts: u8, // keep track of failed logins
 }
 
 impl App {
@@ -44,8 +45,11 @@ impl App {
             current_screen: CurrentScreen::Main,
             messages: Vec::<String>::new(),
             scroll_offset: 0,
+            failed_login_attempts: 0,
         }
     }
+
+    // Handling incoming WebSocket messages from the server
     pub fn handle_websocket_message(&mut self, message: &str) {
         if let Ok(message_type) = serde_json::from_str::<MessageType>(&message) {
             match message_type {
@@ -57,10 +61,22 @@ impl App {
                     if system_message.contains("Authentication successful") {
                         self.messages.push("You are authenticated!".to_string());
                         self.current_screen = CurrentScreen::Main;
+                        self.failed_login_attempts = 0; // Reset failed attempts on success
                     } else if system_message.contains("Authentication failed") {
-                        self.messages
-                            .push("Authentication failed. Please try again.".to_string());
-                        self.current_screen = CurrentScreen::LoggingIn;
+                        self.failed_login_attempts += 1; // Increment failed attempts
+                        let remaining_attempts = 5 - self.failed_login_attempts;
+                        self.messages.push(format!(
+                            "Authentication failed. {} attempts remaining.",
+                            remaining_attempts
+                        ));
+
+                        if self.failed_login_attempts >= 5 {
+                            self.current_screen = CurrentScreen::Disconnected; // Disconnect after max attempts
+                            self.messages
+                                .push("Max login attempts reached. Connection closed.".to_string());
+                        } else {
+                            self.current_screen = CurrentScreen::LoggingIn; // Retry login
+                        }
                     } else {
                         self.messages.push(system_message);
                     }
