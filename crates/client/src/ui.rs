@@ -29,7 +29,8 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             "Connection lost. Press 'r' to attempt to reconnect or press 'q' to quit.",
         )
         .block(block)
-        .wrap(Wrap { trim: true });
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(Color::Yellow)); // Highlight the reconnect/quit instructions
 
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(Clear, frame.area()); // Clear the screen
@@ -53,9 +54,11 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             "Enter your password:"
         };
 
-        let paragraph = Paragraph::new(format!("{}{}", prompt, app.message_input.as_str()))
+        // Highlight the input area to make it stand out more for the user
+        let paragraph = Paragraph::new(format!("{} {}", prompt, app.message_input.as_str()))
             .block(block)
-            .wrap(Wrap { trim: true });
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::Yellow));
 
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(paragraph, area);
