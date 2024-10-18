@@ -303,9 +303,13 @@ async fn run_app<B: Backend>(
                                      },
                                      Command::Unknown(input) => {
                                          let msg = MessageType::ChatMessage {
-                                         sender: app.username.clone().unwrap_or_else(|| "Anonymous".to_string()),
+                                         sender: app.username.clone().unwrap_or_else(|| "You".to_string()),
                                          content: input.clone()
                                          };
+
+                                        // Add the message to the app's messages
+                                        app.messages.push(format!("You: {}", input));
+
                                          if let Err(e) = write.send(Message::Text(serde_json::to_string(&msg).unwrap())).await {
                                              log::error!("Failed to send message: {:?}", e);
                                          }
