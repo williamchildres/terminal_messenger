@@ -67,6 +67,9 @@ async fn handle_connection(
 
     // Step 1: Authenticate the user before proceeding
     let mut authenticated = false;
+    let mut login_attempts = 0; // Add counter for failed login attempts
+    let max_attempts = 5;
+
     while let Some(result) = incoming.next().await {
         if let Ok(Message::Text(text)) = result {
             if let Ok(MessageType::SystemMessage(auth_msg)) =
@@ -99,10 +102,27 @@ async fn handle_connection(
 
                         break; // User is authenticated, proceed
                     } else {
-                        let fail_message =
-                            MessageType::SystemMessage("Authentication failed".to_string());
+                        login_attempts += 1; // Increment failed attempts
+                        let remaining_attempts = max_attempts - login_attempts;
+                        let fail_message = MessageType::SystemMessage(format!(
+                            "Authentication failed. {} attempts remaining.",
+                            remaining_attempts
+                        ));
                         tx_original.send(fail_message).unwrap();
-                        return; // Close connection on failure
+                        println!("Authentication Failed.");
+
+                        // If the user exceeds max attempts, close the connection
+                        if login_attempts >= max_attempts {
+                            let max_attempt_message = MessageType::SystemMessage(
+                                "Max login attempts reached. Closing connection.".to_string(),
+                            );
+                            tx_original.send(max_attempt_message).unwrap();
+                            println!(
+                                "Max login attempts reached, closing connection for {}",
+                                client_id
+                            );
+                            return; // Exit function, closing the connection
+                        }
                     }
                 }
             }
