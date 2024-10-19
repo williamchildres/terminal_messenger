@@ -9,20 +9,19 @@ use ratatui::{
     Terminal,
 };
 use std::io as err_io;
-use std::time::Duration;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
-use tokio::net::TcpStream;
+use tokio::io::{self};
+use tokio::select;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::MaybeTlsStream;
-use tokio_tungstenite::WebSocketStream;
 use url::Url;
 
 mod app;
 mod ui;
+mod websocket;
 use crate::app::{App, Command, CurrentScreen, MessageType};
 use crate::ui::ui;
+use websocket::{connect_to_server, handle_websocket};
 
 #[tokio::main]
 async fn main() {
@@ -105,35 +104,12 @@ async fn run_app<B: Backend>(
 
     loop {
         // Use tokio::select! to handle both WebSocket messages and terminal events
-        tokio::select! {
-            // Handle WebSocket messages
-            ws_msg = read.next() => {
-                if let Some(Ok(Message::Text(text))) = ws_msg {
-                    app.handle_websocket_message(&text);
-
-                    // Redraw the UI after receiving the message
-                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-                    // If the message indicates successful authentication, switch to main screen
-                    if text.contains("Authentication successful") {
-                        app.current_screen = CurrentScreen::Main;
-                    } else if text.contains("Authentication failed") {
-                        if app.failed_login_attempts < 5 {
-                            app.current_screen = CurrentScreen::LoggingIn;  // Retry login
-                            app.username = None;
-
-                        } else {
-                            app.current_screen = CurrentScreen::Disconnected;  // Disconnect after max attempts
-                        }
-                                terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                 }
-                } else if let Some(Ok(Message::Close(_))) = ws_msg {
-                    app.current_screen = CurrentScreen::Disconnected;
-                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                } else if let Some(Err(e)) = ws_msg {
-                    app.current_screen = CurrentScreen::Disconnected;
-                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    log::error!("WebSocket error: {:?}", e);
+        select! {
+            // Handle WebSocket messages in the websocket module
+            ws_res = handle_websocket(app, terminal, &mut write, &mut read) => {
+                if ws_res.is_err() {
+                    log::error!("WebSocket error: {:?}", ws_res.err());
+                    return Ok(false);  // Exit on WebSocket error
                 }
             }
 
@@ -144,185 +120,15 @@ async fn run_app<B: Backend>(
                         continue;
                     }
                     match app.current_screen {
-                         CurrentScreen::LoggingIn => match key.code {
-                            KeyCode::Enter => {
-                                // Assume the first input is username, second is password
-                                if app.username.is_none() {
-                                    // First, set username
-                                    app.username = Some(app.message_input.clone());
-                                    app.message_input.clear(); // Clear input for password entry
-                                    app.messages.push(MessageType::SystemMessage("Enter your password:".to_string()));
-                                } else {
-                                    // Now set password and try to authenticate
-                                    app.password = Some(app.message_input.clone());
-                                    app.message_input.clear();
+                        CurrentScreen::LoggingIn => handle_login_input(key.code, app, &mut write).await?,
+                        CurrentScreen::Main => handle_main_input(key.code, app).await,
+                        CurrentScreen::ComposingMessage => handle_composing_message_input(key.code, app, &mut write).await?,
+                        CurrentScreen::SetUser => handle_set_user_input(key.code, app, &mut write).await?,
+                        CurrentScreen::HelpMenu => handle_help_menu_input(key.code, app).await?,
+                        CurrentScreen::Exiting => handle_exiting_input(key.code, app).await?,
+                        CurrentScreen::Disconnected =>  handle_disconnected_input(key.code, app, terminal, &mut write, &mut read).await?,
 
-                                    // Send "username:password" to the server as SystemMessage
-                                    if let (Some(username), Some(password)) = (&app.username, &app.password) {
-                                        let auth_message = MessageType::SystemMessage(format!("{}:{}", username, password));
-                                        if let Err(e) = write.send(Message::Text(serde_json::to_string(&auth_message).unwrap())).await {
-                                            log::error!("Failed to send authentication: {:?}", e);
-                                        }
-                                         // Set client side username here
-                                        //app.username = Some(username.to_string());
-                                        app.staging_username = Some(username.to_string());
-                                    }
-                                    // Switch back to prompting for a username
-                                    app.username = None;
-                                }
-                            }
-                            KeyCode::Backspace => {
-                                app.message_input.pop();  // Handle backspace for login input
-                            }
-                            KeyCode::Char(c) => {
-                                app.message_input.push(c);  // Handle character input for login
-                            }
-                            _ => {}
-                        },
-
-                        CurrentScreen::Main => match key.code {
-                            KeyCode::Enter =>{
-                                app.current_screen = CurrentScreen::ComposingMessage;
-                                app.message_input.clear();
-                            }
-                            KeyCode::Char('h') => {
-                                app.current_screen = CurrentScreen::HelpMenu;
-                            }
-                            KeyCode::Char('q') => {
-                                app.current_screen = CurrentScreen::Exiting;
-                            }
-                            KeyCode::Char('n') => {
-                                app.current_screen = CurrentScreen::SetUser;
-                            }
-                            KeyCode::Up => app.scroll_up(),
-                            KeyCode::Down => app.scroll_down(),
-                            _ => {}
-                        },
-                        CurrentScreen::Exiting => match key.code {
-                            KeyCode::Char('y') => {
-                                return Ok(true);
-                            }
-                            KeyCode::Char('n') | KeyCode::Char('q') => {
-                                app.current_screen = CurrentScreen::Main;
-                            }
-                            _ => {}
-                        },
-                        CurrentScreen::Disconnected => match key.code {
-                            KeyCode::Char('r') => {
-                                // Attempt to reconnect
-                                if let Ok(new_stream) = connect_to_server().await {
-                                    let (new_write, new_read) = new_stream.split();
-                                    write = new_write;
-                                    read = new_read;
-
-                                    // Clear terminal and force a full redraw when reconnected
-                                    terminal.clear()?;
-                                    app.current_screen = CurrentScreen::Main; // Reconnect successful
-                                    terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                                }
-                            }
-                            KeyCode::Char('q') => return Ok(true),  // Exit the app
-                            _ => {}
-                        },
-                        CurrentScreen::ComposingMessage => match key.code {
-                            KeyCode::Enter => {
-                                let user_input = app.message_input.clone();
-                                match app.parse_command(&user_input) {
-                                     Command::SetName(name) => {
-                                         // Serialize the `/name` command to JSON and send it to the server
-                                         let cmd = MessageType::Command { name: "name".to_string(), args: vec![name.clone()] };
-                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                                             log::error!("Failed to send command: {:?}", e);
-                                         }
-                                         app.set_username(name);  // Update username locally
-                                         },
-                                     Command::ListUsers => {
-                                         // Serialize the `/list` command to JSON and send it to the server
-                                         let cmd = MessageType::Command { name: "list".to_string(), args: vec![] };
-                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                                             log::error!("Failed to send command: {:?}", e);
-                                         }
-                                     },
-                                     Command::DirectMessage(recipient, message) => {
-                                         // Serialize the `/dm` command to JSON and send it to the server
-                                         let cmd = MessageType::Command { name: "DirectMessage".to_string(), args: vec![recipient.clone(), message.clone()] };
-                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                                             log::error!("Failed to send command: {:?}", e);
-                                         }
-                                     },
-                                     Command::Help => {
-                                         app.current_screen = CurrentScreen::HelpMenu;
-                                     },
-                                     Command::Unknown(input) => {
-                                         let msg = MessageType::ChatMessage {
-                                         sender: app.username.clone().unwrap_or_else(|| "You".to_string()),
-                                         content: input.clone()
-                                         };
-
-                                        // Add the message to the app's messages
-                                        app.messages.push(msg.clone());
-
-                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&msg).unwrap())).await {
-                                             log::error!("Failed to send message: {:?}", e);
-                                         }
-                                     }
-                                }
-
-                                 app.message_input.clear();  // Clear input field after sending
-                                 app.current_screen = CurrentScreen::Main;  // Return to the main screen
-                            }
-                            KeyCode::Up => {
-                                app.compose_scroll_up();
-                            }
-                            KeyCode::Down => {
-                                app.compose_scroll_down();
-                            }
-                            KeyCode::Backspace => {
-                                // Remove the last character from the message input
-                                app.message_input.pop();
-                            }
-                            KeyCode::Esc => {
-                                app.current_screen = CurrentScreen::Main;
-                            }
-                            KeyCode::Char(c) => {
-                                app.message_input.push(c);
-                            }
-                            _ => {}
-                        },
-                        CurrentScreen::HelpMenu => match key.code {  // pressing any key will exit help menu
-                         _ => {
-                             app.current_screen = CurrentScreen::Main;
-                         }
-                        },
-                        CurrentScreen::SetUser => match key.code {
-                            KeyCode::Enter => {
-                                // Set the username and switch back to the main screen
-                                let username = app.message_input.clone();
-                                app.set_username(username.clone());
-
-                                let cmd = MessageType::Command {
-                                name: "name".to_string(),
-                                args: vec![username.clone()],
-                                };
-                                if let Err(e) = write.send(Message::Text(serde_json::to_string(&cmd).unwrap())).await {
-                                    log::error!("Failed to send command: {:?}", e);
-                                }
-
-                                app.current_screen = CurrentScreen::Main; // Go back to the main screen
-                                app.message_input.clear();  // Clear input after setting username
-                            }
-                            KeyCode::Backspace => {
-                                app.message_input.pop();  // Handle backspace to delete last character
-                            }
-                            KeyCode::Esc => {
-                                app.current_screen = CurrentScreen::Main;  // Cancel username input and go back
-                            }
-                            KeyCode::Char(c) => {
-                                app.message_input.push(c);  // Add typed character to input
-                            }
-                            _ => {}
-                        },
-                    }
+                                            }
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 } else if let Event::Resize(_, _) = event {
                     terminal.draw(|f| ui(f, app)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -332,10 +138,237 @@ async fn run_app<B: Backend>(
     }
 }
 
-async fn connect_to_server(
-) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Box<dyn std::error::Error>> {
-    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
-    // messenger.uhes.dev
-    let (ws_stream, _) = connect_async(server_url).await?;
-    Ok(ws_stream)
+async fn handle_login_input(
+    key: KeyCode,
+    app: &mut App,
+    write: &mut futures_util::stream::SplitSink<websocket::WsStream, Message>,
+) -> io::Result<()> {
+    match key {
+        KeyCode::Enter => {
+            // First, set username, then prompt for password
+            if app.username.is_none() {
+                app.username = Some(app.message_input.clone());
+                app.message_input.clear(); // Clear input for password entry
+                app.messages.push(MessageType::SystemMessage(
+                    "Enter your password:".to_string(),
+                ));
+            } else {
+                // Set password and try to authenticate
+                app.password = Some(app.message_input.clone());
+                app.message_input.clear();
+
+                // Send authentication request
+                if let (Some(username), Some(password)) = (&app.username, &app.password) {
+                    let auth_message =
+                        MessageType::SystemMessage(format!("{}:{}", username, password));
+                    write
+                        .send(Message::Text(serde_json::to_string(&auth_message).unwrap()))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                    // Store username as staging and reset to allow retry if needed
+                    app.staging_username = Some(username.clone());
+                }
+
+                // Reset username to allow retry
+                app.username = None;
+            }
+        }
+        KeyCode::Backspace => {
+            app.message_input.pop();
+        }
+        KeyCode::Char(c) => {
+            app.message_input.push(c);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_main_input(key: KeyCode, app: &mut App) {
+    match key {
+        KeyCode::Enter => {
+            app.current_screen = CurrentScreen::ComposingMessage;
+            app.message_input.clear();
+        }
+        KeyCode::Char('h') => {
+            app.current_screen = CurrentScreen::HelpMenu;
+        }
+        KeyCode::Char('q') => {
+            app.current_screen = CurrentScreen::Exiting;
+        }
+        KeyCode::Char('n') => {
+            app.current_screen = CurrentScreen::SetUser;
+        }
+        KeyCode::Up => app.scroll_up(),
+        KeyCode::Down => app.scroll_down(),
+        _ => {}
+    }
+}
+async fn handle_composing_message_input(
+    key: KeyCode,
+    app: &mut App,
+    write: &mut futures_util::stream::SplitSink<websocket::WsStream, Message>,
+) -> io::Result<()> {
+    match key {
+        KeyCode::Enter => {
+            let user_input = app.message_input.clone();
+            match app.parse_command(&user_input) {
+                Command::SetName(name) => {
+                    let cmd = MessageType::Command {
+                        name: "name".to_string(),
+                        args: vec![name.clone()],
+                    };
+                    write
+                        .send(Message::Text(serde_json::to_string(&cmd).unwrap()))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+                    app.set_username(name);
+                }
+                Command::ListUsers => {
+                    let cmd = MessageType::Command {
+                        name: "list".to_string(),
+                        args: vec![],
+                    };
+                    write
+                        .send(Message::Text(serde_json::to_string(&cmd).unwrap()))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }
+                Command::DirectMessage(recipient, message) => {
+                    let cmd = MessageType::Command {
+                        name: "DirectMessage".to_string(),
+                        args: vec![recipient.clone(), message.clone()],
+                    };
+                    write
+                        .send(Message::Text(serde_json::to_string(&cmd).unwrap()))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }
+                Command::Help => {
+                    app.current_screen = CurrentScreen::HelpMenu;
+                }
+                Command::Unknown(input) => {
+                    let msg = MessageType::ChatMessage {
+                        sender: app.username.clone().unwrap_or_else(|| "You".to_string()),
+                        content: input.clone(),
+                    };
+                    app.messages.push(msg.clone());
+                    write
+                        .send(Message::Text(serde_json::to_string(&msg).unwrap()))
+                        .await
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                }
+            }
+
+            app.message_input.clear();
+            app.current_screen = CurrentScreen::Main;
+            return Ok(());
+        }
+        KeyCode::Up => {
+            app.compose_scroll_up();
+            return Ok(());
+        }
+        KeyCode::Down => {
+            app.compose_scroll_down();
+            return Ok(());
+        }
+        KeyCode::Backspace => {
+            app.message_input.pop();
+            return Ok(());
+        }
+        KeyCode::Esc => {
+            app.current_screen = CurrentScreen::Main;
+            return Ok(());
+        }
+        KeyCode::Char(c) => app.message_input.push(c),
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_disconnected_input(
+    key: KeyCode,
+    app: &mut App,
+    terminal: &mut Terminal<impl Backend>,
+    write: &mut futures_util::stream::SplitSink<websocket::WsStream, Message>,
+    read: &mut futures_util::stream::SplitStream<websocket::WsStream>,
+) -> io::Result<()> {
+    match key {
+        KeyCode::Char('r') => {
+            // Attempt to reconnect
+            if let Ok(new_stream) = connect_to_server().await {
+                let (new_write, new_read) = new_stream.split();
+                *write = new_write;
+                *read = new_read;
+
+                // Clear terminal and force a full redraw
+                terminal.clear()?;
+                app.current_screen = CurrentScreen::Main;
+            }
+        }
+        KeyCode::Char('q') => return Ok(()), // Exit the app
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_set_user_input(
+    key: KeyCode,
+    app: &mut App,
+    write: &mut futures_util::stream::SplitSink<websocket::WsStream, Message>,
+) -> io::Result<()> {
+    match key {
+        KeyCode::Enter => {
+            // Set the username and switch back to the main screen
+            let username = app.message_input.clone();
+            app.set_username(username.clone());
+
+            let cmd = MessageType::Command {
+                name: "name".to_string(),
+                args: vec![username.clone()],
+            };
+            if let Err(e) = write
+                .send(Message::Text(serde_json::to_string(&cmd).unwrap()))
+                .await
+            {
+                log::error!("Failed to send command: {:?}", e);
+            }
+
+            app.current_screen = CurrentScreen::Main; // Go back to the main screen
+            app.message_input.clear(); // Clear input after setting username
+        }
+        KeyCode::Backspace => {
+            app.message_input.pop(); // Handle backspace to delete last character
+        }
+        KeyCode::Esc => {
+            app.current_screen = CurrentScreen::Main; // Cancel username input and go back
+        }
+        KeyCode::Char(c) => {
+            app.message_input.push(c); // Add typed character to input
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_help_menu_input(_key: KeyCode, app: &mut App) -> io::Result<()> {
+    // pressing any key will exit help menu and go back to main screen
+    app.current_screen = CurrentScreen::Main;
+
+    Ok(())
+}
+
+async fn handle_exiting_input(key: KeyCode, app: &mut App) -> io::Result<()> {
+    match key {
+        KeyCode::Char('y') => {
+            return Ok(()); // Exit the app
+        }
+        KeyCode::Char('n') | KeyCode::Char('q') => {
+            app.current_screen = CurrentScreen::Main;
+        }
+        _ => {}
+    }
+    Ok(())
 }
