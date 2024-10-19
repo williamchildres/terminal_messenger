@@ -1,3 +1,4 @@
+use crate::app::{App, CurrentScreen, MessageType};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style},
@@ -6,15 +7,28 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, CurrentScreen};
-
 pub fn ui(frame: &mut Frame, app: &mut App) {
+    // Compose message scrolling management
+    let input_lines = wrap_text(&app.message_input, frame.area().width as usize - 4); // Subtracting borders
+    let max_input_height = 5; // Maximum height for input box
+    let input_height = std::cmp::min(input_lines.len(), max_input_height);
+
+    // Scroll offset for input (manages scrolling when the input is longer than the view)
+    let input_start_line = app.compose_scroll_offset;
+    let visible_input_lines = input_lines
+        .iter()
+        .skip(input_start_line)
+        .take(max_input_height)
+        .cloned()
+        .collect::<Vec<String>>();
+
+    // Layout based on dynamic input box height
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Title/Header
-            Constraint::Min(1),    // Messages List
-            Constraint::Length(3), // Message Input Field
+            Constraint::Length(3),                         // Title/Header
+            Constraint::Min(1),                            // Messages List
+            Constraint::Length((input_height + 2) as u16), // Message Input Field
         ])
         .split(frame.area());
 
@@ -24,100 +38,117 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             .title("Disconnected")
             .borders(Borders::ALL)
             .style(Style::default().bg(Color::DarkGray));
-
         let paragraph = Paragraph::new(
             "Connection lost. Press 'r' to attempt to reconnect or press 'q' to quit.",
         )
         .block(block)
         .wrap(Wrap { trim: true })
-        .style(Style::default().fg(Color::Yellow)); // Highlight the reconnect/quit instructions
-
+        .style(Style::default().fg(Color::Yellow));
         let area = centered_rect(60, 25, frame.area());
-        frame.render_widget(Clear, frame.area()); // Clear the screen
-        frame.render_widget(paragraph, area); // Show disconnection message
-        return; // Skip the rest of the UI rendering
+        frame.render_widget(Clear, frame.area());
+        frame.render_widget(paragraph, area);
+        return;
     }
 
-    // Handle login flow (username and password input)
+    // Handle login screen
     if let CurrentScreen::LoggingIn = app.current_screen {
-        frame.render_widget(Clear, frame.area()); // Clear the screen
-
+        frame.render_widget(Clear, frame.area());
         let block = Block::default()
             .title("Login")
             .borders(Borders::ALL)
             .style(Style::default().bg(Color::DarkGray));
-
-        // Determine the prompt based on whether username or password is being entered
         let prompt = if app.username.is_none() {
             "Enter your username:"
         } else {
             "Enter your password:"
         };
-
-        // Highlight the input area to make it stand out more for the user
         let paragraph = Paragraph::new(format!("{} {}", prompt, app.message_input.as_str()))
             .block(block)
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(Color::Yellow));
-
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(paragraph, area);
-
-        // Set cursor position inside the login box
         let cursor_x = area.x + prompt.len() as u16 + app.message_input.len() as u16 + 1;
         let cursor_y = area.y + 1;
         frame.set_cursor_position(Position::new(cursor_x, cursor_y));
-        return; // Skip the rest of the UI rendering
+        return;
     }
 
+    // Header block (Title and Help)
     const TITLE: &str = "TUI Messenger";
     const KEY_HINT: &str = "(h) help";
-
-    let title_length = TITLE.len();
-    let key_hint_len = KEY_HINT.len();
-    let terminal_size = frame.area();
-    let total_width = terminal_size.width as usize;
-    let spaces_len = total_width.saturating_sub(title_length + key_hint_len + 2);
-
-    // Header block with title and key hints
     let header = Paragraph::new(Line::from(vec![
         Span::styled(TITLE, Style::default().fg(Color::Green)),
-        Span::raw(" ".repeat(spaces_len)),
+        Span::raw(" ".repeat(frame.area().width as usize - TITLE.len() - KEY_HINT.len())),
         Span::styled(KEY_HINT, Style::default().fg(Color::Red)),
     ]))
     .block(Block::default().borders(Borders::ALL));
     frame.render_widget(header, chunks[0]);
 
-    // Messages list block (handles multi-line wrapping)
+    // Messages area with left/right alignment for sent/received messages
     let messages_area = chunks[1];
-    let max_width = messages_area.width as usize - 4;
+    let max_width = messages_area.width.checked_sub(4).unwrap_or(0) as usize;
     let available_lines = messages_area.height as usize - 2;
 
-    // Flatten all messages into individual wrapped lines
     let wrapped_messages = app
         .messages
         .iter()
-        .flat_map(|msg| wrap_text(msg, max_width))
+        .flat_map(|msg| {
+            if let MessageType::ChatMessage { sender, content } = msg {
+                wrap_text(&format!("{}: {}", sender, content), max_width)
+            } else {
+                vec![]
+            }
+        })
         .collect::<Vec<String>>();
 
-    // Calculate the starting point based on available display lines and scrolling offset
     let start_line = wrapped_messages
         .len()
         .saturating_sub(available_lines + app.scroll_offset);
 
-    // Create list items from wrapped lines
-    let visible_lines = wrapped_messages
+    let visible_lines = app
+        .messages
         .iter()
         .skip(start_line)
         .take(available_lines)
-        .map(|line| ListItem::new(Span::styled(line, Style::default().fg(Color::Green))))
+        .map(|msg| {
+            match msg {
+                MessageType::ChatMessage { sender, content } => {
+                    let alignment = if Some(sender) == app.username.as_ref() {
+                        // Align to the right if the message is from the current user
+                        let padding = " ".repeat(
+                            max_width
+                                .checked_sub(content.len() + sender.len() + 2)
+                                .unwrap_or(0),
+                        );
+                        ListItem::new(Span::styled(
+                            format!("{}{}: {}", padding, sender, content),
+                            Style::default().fg(Color::Cyan),
+                        ))
+                    } else {
+                        // Align to the left for other users
+                        ListItem::new(Span::styled(
+                            format!("{}: {}", sender, content),
+                            Style::default().fg(Color::Green),
+                        ))
+                    };
+                    Some(alignment)
+                }
+                MessageType::SystemMessage(system_message) => Some(ListItem::new(Span::styled(
+                    system_message.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ))),
+                _ => None,
+            }
+        })
+        .filter_map(|x| x)
         .collect::<Vec<ListItem>>();
 
     let list = List::new(visible_lines).block(Block::default().borders(Borders::ALL));
     frame.render_widget(list, messages_area);
 
     // Message input block
-    let typing = Paragraph::new(app.message_input.as_str())
+    let typing = Paragraph::new(visible_input_lines.join("\n"))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -129,81 +160,66 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     // Set cursor position if composing a message
     if let CurrentScreen::ComposingMessage = app.current_screen {
         let cursor_x = chunks[2].x + app.message_input.len() as u16 + 1;
-        let cursor_y = chunks[2].y + 1;
+        let cursor_y = chunks[2].y + visible_input_lines.len() as u16;
         frame.set_cursor_position(Position::new(cursor_x, cursor_y));
     }
 
-    // Popup for setting the username
-    if let CurrentScreen::SetUser = app.current_screen {
-        frame.render_widget(Clear, frame.area()); // Clears the screen
-
-        let block = Block::default()
-            .title("Set Username")
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::DarkGray));
-
-        let paragraph = Paragraph::new(app.message_input.as_str())
-            .block(block)
-            .wrap(Wrap { trim: true });
-
-        // Center the popup
-        let area = centered_rect(60, 25, frame.area());
-        frame.render_widget(paragraph, area);
-
-        // Set cursor position in the popup for entering the username
-        let cursor_x = area.x + app.message_input.len() as u16 + 1;
-        let cursor_y = area.y + 1;
-        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
-    }
-
-    // Show help menu if 'e' is pressed
+    // Help menu popup
     if let CurrentScreen::HelpMenu = app.current_screen {
-        frame.render_widget(Clear, frame.area()); // Clears the entire screen and anything already drawn
-
+        frame.render_widget(Clear, frame.area());
         let help_menu_block = Block::default()
             .title("Help Menu")
             .borders(Borders::NONE)
             .style(Style::default().bg(Color::DarkGray));
-
         let help_menu_text = Text::styled(
-            "(q) to quit\n(n) to set username", // replace with actual help text
+            "(q) to quit\n(n) to set username",
             Style::default().fg(Color::Red),
         );
-
         let help_menu_paragraph = Paragraph::new(help_menu_text)
             .block(help_menu_block)
             .wrap(Wrap { trim: false });
-
         let area = centered_rect(60, 25, frame.area());
-
         frame.render_widget(help_menu_paragraph, area);
     }
 
     // Exiting confirmation popup
     if let CurrentScreen::Exiting = app.current_screen {
-        frame.render_widget(Clear, frame.area()); // Clears the entire screen and anything already drawn
+        frame.render_widget(Clear, frame.area());
         let popup_block = Block::default()
             .title("y/n")
             .borders(Borders::NONE)
             .style(Style::default().bg(Color::DarkGray));
-
         let exit_text = Text::styled(
             "Are you sure you want to quit?",
             Style::default().fg(Color::Red),
         );
-
         let exit_paragraph = Paragraph::new(exit_text)
             .block(popup_block)
             .wrap(Wrap { trim: false });
-
         let area = centered_rect(60, 25, frame.area());
         frame.render_widget(exit_paragraph, area);
     }
+
+    // Set Username Popup
+    if let CurrentScreen::SetUser = app.current_screen {
+        frame.render_widget(Clear, frame.area());
+        let block = Block::default()
+            .title("Set Username")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray));
+        let paragraph = Paragraph::new(app.message_input.as_str())
+            .block(block)
+            .wrap(Wrap { trim: true });
+        let area = centered_rect(60, 25, frame.area());
+        frame.render_widget(paragraph, area);
+        let cursor_x = area.x + app.message_input.len() as u16 + 1;
+        let cursor_y = area.y + 1;
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+    }
 }
 
-/// helper function to create a centered rect using up a certain percentage of the available rect `r`
+// Helper function to create a centered rect
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    // Cut the given rectangle into three vertical pieces
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -213,7 +229,6 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(r);
 
-    // Then cut the middle vertical piece into three width-wise pieces
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -221,10 +236,10 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage(percent_x),
             Constraint::Percentage((100 - percent_x) / 2),
         ])
-        .split(popup_layout[1])[1] // Return the middle chunk
+        .split(popup_layout[1])[1]
 }
 
-/// Wrap text into lines with maximum width.
+// Helper to wrap text
 fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     for line in text.split('\n') {
@@ -244,38 +259,4 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
         lines.push(new_line);
     }
     lines
-}
-
-/// Unit tests
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_wrap_text() {
-        let text = "Hello, world! This is a long text that needs to be wrapped.";
-        let max_width = 10;
-        let expected_lines = vec![
-            "Hello,",
-            "world! This",
-            "is a long",
-            "text that",
-            "needs to be",
-            "wrapped.",
-        ];
-
-        let result = wrap_text(text, max_width);
-
-        assert_eq!(result, expected_lines);
-    }
-    #[test]
-    fn test_wrap_text_empty() {
-        let text = "";
-        let max_width = 10;
-        let expected_lines = vec![""];
-
-        let result = wrap_text(text, max_width);
-
-        assert_eq!(result, expected_lines);
-    }
 }

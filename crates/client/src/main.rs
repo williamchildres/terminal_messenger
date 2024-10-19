@@ -202,7 +202,7 @@ async fn run_app<B: Backend>(
                                     // First, set username
                                     app.username = Some(app.message_input.clone());
                                     app.message_input.clear(); // Clear input for password entry
-                                    app.messages.push("Enter your password:".to_string());
+                                    app.messages.push(MessageType::SystemMessage("Enter your password:".to_string()));
                                 } else {
                                     // Now set password and try to authenticate
                                     app.password = Some(app.message_input.clone());
@@ -308,7 +308,7 @@ async fn run_app<B: Backend>(
                                          };
 
                                         // Add the message to the app's messages
-                                        app.messages.push(format!("You: {}", input));
+                                        app.messages.push(msg.clone());
 
                                          if let Err(e) = write.send(Message::Text(serde_json::to_string(&msg).unwrap())).await {
                                              log::error!("Failed to send message: {:?}", e);
@@ -318,6 +318,12 @@ async fn run_app<B: Backend>(
 
                                  app.message_input.clear();  // Clear input field after sending
                                  app.current_screen = CurrentScreen::Main;  // Return to the main screen
+                            }
+                            KeyCode::Up => {
+                                app.compose_scroll_up();
+                            }
+                            KeyCode::Down => {
+                                app.compose_scroll_down();
                             }
                             KeyCode::Backspace => {
                                 // Remove the last character from the message input
