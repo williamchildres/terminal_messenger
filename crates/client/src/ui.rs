@@ -10,7 +10,9 @@ use ratatui::{
 pub fn ui(frame: &mut Frame, app: &mut App) {
     // Compose message scrolling management
     let input_lines = wrap_single_line(&app.message_input, frame.area().width as usize - 4); // Subtracting borders
-    let max_input_height = 5; // Maximum height for input box
+
+    let available_height = frame.area().height as usize; // u16 to usize value
+    let max_input_height = std::cmp::min(available_height.saturating_sub(4), 5); // Prevent overflow
     let input_height = std::cmp::min(input_lines.len(), max_input_height);
 
     // Scroll offset for input (manages scrolling when the input is longer than the view)
@@ -77,9 +79,14 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     // Header block (Title and Help)
     const TITLE: &str = "TUI Messenger";
     const KEY_HINT: &str = "(h) help";
+    let total_width = frame.area().width as usize;
+
+    // Ensure that we don't subtract too much and cause a crash
+    let space_padding = total_width.saturating_sub(TITLE.len() + KEY_HINT.len() + 2); // Avoid negative values
+
     let header = Paragraph::new(Line::from(vec![
         Span::styled(TITLE, Style::default().fg(Color::Green)),
-        Span::raw(" ".repeat(frame.area().width as usize - TITLE.len() - KEY_HINT.len() - 2)),
+        Span::raw(" ".repeat(space_padding)), // Safely repeat spaces
         Span::styled(KEY_HINT, Style::default().fg(Color::Red)),
     ]))
     .block(Block::default().borders(Borders::ALL));
@@ -88,7 +95,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     // Messages area with left/right alignment for sent/received messages
     let messages_area = chunks[1];
     let max_width = messages_area.width.checked_sub(4).unwrap_or(0) as usize;
-    let available_lines = messages_area.height as usize - 2;
+    let available_lines = (messages_area.height as usize).saturating_sub(2);
 
     // Wrap messages, and calculate total lines
     let wrapped_lines = wrap_text(&app.messages, max_width, app.username.as_deref());
@@ -247,8 +254,8 @@ fn wrap_text(
     lines
 }
 
-// Helper function to wrap a single line of text
 fn wrap_single_line(line: &str, max_width: usize) -> Vec<String> {
+    let max_width = std::cmp::max(max_width, 10); // Avoid subtracting below a reasonable minimum width
     let mut wrapped_lines = Vec::new();
 
     for line in line.split('\n') {

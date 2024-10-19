@@ -11,12 +11,8 @@ cargo run --bin server
 Client
 
 ```
-cargo run --bin client /tui
+cargo run --bin client
 ```
-
-the /tui argument is important, as it controls launching of the TUI.
-
-The base terminal version of the application (currently broken) can be run with same command, without the /tui arguement
 
 ## Logging
 
