@@ -1,4 +1,6 @@
 // ui/login.rs
+use crate::ui::utils::centered_rect;
+
 use crate::app::App;
 use ratatui::{
     layout::Position,
@@ -25,7 +27,7 @@ pub fn render_login(frame: &mut Frame, app: &mut App) {
         .wrap(Wrap { trim: true })
         .style(ratatui::style::Style::default().fg(ratatui::style::Color::Yellow));
 
-    let area = crate::ui::centered_rect(60, 25, frame.area());
+    let area = centered_rect(60, 25, frame.area());
     frame.render_widget(paragraph, area);
 
     let cursor_x = area.x + prompt.len() as u16 + app.message_input.len() as u16 + 1;

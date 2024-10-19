@@ -1,8 +1,5 @@
 use crate::app::{App, CurrentScreen};
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-    Frame,
-};
+use ratatui::Frame;
 
 mod chat;
 mod disconnected;
@@ -10,6 +7,7 @@ mod exiting;
 mod help;
 mod login;
 mod set_user;
+mod utils;
 
 pub fn ui(frame: &mut Frame, app: &mut App) {
     match app.current_screen {
@@ -22,25 +20,4 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         CurrentScreen::SetUser => set_user::render_set_user(frame, app),
         _ => {} // Handle other screens if needed
     }
-}
-
-// Helper function to create a centered rect
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }

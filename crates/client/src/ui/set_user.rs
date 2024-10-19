@@ -1,11 +1,12 @@
 // ui/set_user.rs
 use crate::app::App;
+use crate::ui::utils::centered_rect;
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::Position,
     style::{Color, Style},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
-};
+}; // Import the utility functions
 
 pub fn render_set_user(frame: &mut Frame, app: &mut App) {
     frame.render_widget(Clear, frame.area());
@@ -21,25 +22,4 @@ pub fn render_set_user(frame: &mut Frame, app: &mut App) {
     let cursor_x = area.x + app.message_input.len() as u16 + 1;
     let cursor_y = area.y + 1;
     frame.set_cursor_position(Position::new(cursor_x, cursor_y));
-}
-
-// Helper function to create a centered rect
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
