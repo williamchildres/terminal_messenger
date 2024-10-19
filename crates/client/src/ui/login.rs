@@ -1,15 +1,12 @@
 // ui/login.rs
-use crate::app::{App, CurrentScreen};
+use crate::app::App;
 use ratatui::{
     layout::Position,
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
-pub fn render_login<B>(frame: &mut Frame<B>, app: &mut App)
-where
-    B: ratatui::backend::Backend,
-{
+pub fn render_login(frame: &mut Frame, app: &mut App) {
     frame.render_widget(ratatui::widgets::Clear, frame.area());
 
     let block = Block::default()

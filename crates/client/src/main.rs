@@ -83,6 +83,12 @@ async fn run_app<B: Backend>(
     app: &mut App,
     rx: &mut mpsc::Receiver<Event>,
 ) -> io::Result<bool> {
+    // Set app state and Initialize UI
+    app.current_screen = CurrentScreen::LoggingIn;
+    terminal
+        .draw(|f| ui(f, app))
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
     // Specify the server URL to connect to
     let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
     // ws://127.0.0.1:8080

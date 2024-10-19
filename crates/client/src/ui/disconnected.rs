@@ -1,27 +1,25 @@
-use crate::app::{App, CurrentScreen};
+// ui/disconnected.rs
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
-mod chat;
-mod disconnected;
-mod exiting;
-mod help;
-mod login;
-mod set_user;
-
-pub fn ui(frame: &mut Frame, app: &mut App) {
-    match app.current_screen {
-        CurrentScreen::LoggingIn => login::render_login(frame, app),
-        CurrentScreen::Main => chat::render_chat(frame, app),
-        CurrentScreen::ComposingMessage => chat::render_chat(frame, app),
-        CurrentScreen::HelpMenu => help::render_help(frame),
-        CurrentScreen::Exiting => exiting::render_exiting(frame),
-        CurrentScreen::Disconnected => disconnected::render_disconnected(frame),
-        CurrentScreen::SetUser => set_user::render_set_user(frame, app),
-        _ => {} // Handle other screens if needed
-    }
+pub fn render_disconnected(frame: &mut Frame) {
+    let block = Block::default()
+        .title("Disconnected")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::DarkGray));
+    let paragraph =
+        Paragraph::new("Connection lost. Press 'r' to attempt to reconnect or press 'q' to quit.")
+            .block(block)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::Yellow));
+    let area = centered_rect(60, 25, frame.area());
+    frame.render_widget(Clear, frame.area());
+    frame.render_widget(paragraph, area);
+    return;
 }
 
 // Helper function to create a centered rect

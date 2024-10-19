@@ -1,27 +1,27 @@
-use crate::app::{App, CurrentScreen};
+// ui/exiting.rs
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    text::Text,
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
-mod chat;
-mod disconnected;
-mod exiting;
-mod help;
-mod login;
-mod set_user;
-
-pub fn ui(frame: &mut Frame, app: &mut App) {
-    match app.current_screen {
-        CurrentScreen::LoggingIn => login::render_login(frame, app),
-        CurrentScreen::Main => chat::render_chat(frame, app),
-        CurrentScreen::ComposingMessage => chat::render_chat(frame, app),
-        CurrentScreen::HelpMenu => help::render_help(frame),
-        CurrentScreen::Exiting => exiting::render_exiting(frame),
-        CurrentScreen::Disconnected => disconnected::render_disconnected(frame),
-        CurrentScreen::SetUser => set_user::render_set_user(frame, app),
-        _ => {} // Handle other screens if needed
-    }
+pub fn render_exiting(frame: &mut Frame) {
+    frame.render_widget(Clear, frame.area());
+    let popup_block = Block::default()
+        .title("y/n")
+        .borders(Borders::NONE)
+        .style(Style::default().bg(Color::DarkGray));
+    let exit_text = Text::styled(
+        "Are you sure you want to quit?",
+        Style::default().fg(Color::Red),
+    );
+    let exit_paragraph = Paragraph::new(exit_text)
+        .block(popup_block)
+        .wrap(Wrap { trim: false });
+    let area = centered_rect(60, 25, frame.area());
+    frame.render_widget(exit_paragraph, area);
 }
 
 // Helper function to create a centered rect

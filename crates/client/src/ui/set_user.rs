@@ -1,29 +1,26 @@
-// ui/help.rs
+// ui/set_user.rs
+use crate::app::App;
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Color, Style},
-    text::Text,
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
-pub fn render_help(frame: &mut Frame) {
-    frame.render_widget(ratatui::widgets::Clear, frame.area());
-
+pub fn render_set_user(frame: &mut Frame, app: &mut App) {
     frame.render_widget(Clear, frame.area());
-    let help_menu_block = Block::default()
-        .title("Help Menu")
-        .borders(Borders::NONE)
+    let block = Block::default()
+        .title("Set Username")
+        .borders(Borders::ALL)
         .style(Style::default().bg(Color::DarkGray));
-    let help_menu_text = Text::styled(
-        "(q) to quit\n(n) to set username",
-        Style::default().fg(Color::Red),
-    );
-    let help_menu_paragraph = Paragraph::new(help_menu_text)
-        .block(help_menu_block)
-        .wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(app.message_input.as_str())
+        .block(block)
+        .wrap(Wrap { trim: true });
     let area = centered_rect(60, 25, frame.area());
-    frame.render_widget(help_menu_paragraph, area);
+    frame.render_widget(paragraph, area);
+    let cursor_x = area.x + app.message_input.len() as u16 + 1;
+    let cursor_y = area.y + 1;
+    frame.set_cursor_position(Position::new(cursor_x, cursor_y));
 }
 
 // Helper function to create a centered rect
