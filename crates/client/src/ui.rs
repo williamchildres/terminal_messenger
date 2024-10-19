@@ -7,6 +7,9 @@ use ratatui::{
     Frame,
 };
 
+//mod chat;
+//mod login;
+
 pub fn ui(frame: &mut Frame, app: &mut App) {
     // Compose message scrolling management
     let input_lines = wrap_single_line(&app.message_input, frame.area().width as usize - 4); // Subtracting borders

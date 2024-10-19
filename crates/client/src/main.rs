@@ -125,7 +125,11 @@ async fn run_app<B: Backend>(
                         CurrentScreen::ComposingMessage => handle_composing_message_input(key.code, app, &mut write).await?,
                         CurrentScreen::SetUser => handle_set_user_input(key.code, app, &mut write).await?,
                         CurrentScreen::HelpMenu => handle_help_menu_input(key.code, app).await?,
-                        CurrentScreen::Exiting => handle_exiting_input(key.code, app).await?,
+                        CurrentScreen::Exiting => {
+                            if handle_exiting_input(key.code, app).await? {
+                                break Ok(false);
+                            }
+                        }
                         CurrentScreen::Disconnected =>  handle_disconnected_input(key.code, app, terminal, &mut write, &mut read).await?,
 
                                             }
@@ -360,15 +364,15 @@ async fn handle_help_menu_input(_key: KeyCode, app: &mut App) -> io::Result<()> 
     Ok(())
 }
 
-async fn handle_exiting_input(key: KeyCode, app: &mut App) -> io::Result<()> {
+async fn handle_exiting_input(key: KeyCode, app: &mut App) -> io::Result<bool> {
     match key {
         KeyCode::Char('y') => {
-            return Ok(()); // Exit the app
+            return Ok(true); // Exit the app
         }
         KeyCode::Char('n') | KeyCode::Char('q') => {
             app.current_screen = CurrentScreen::Main;
         }
         _ => {}
     }
-    Ok(())
+    Ok(false)
 }
