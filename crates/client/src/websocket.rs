@@ -1,5 +1,5 @@
-use crate::app::{App, MessageType};
-use futures_util::{SinkExt, StreamExt};
+use crate::app::App;
+use futures_util::StreamExt;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
 use std::error::Error;
@@ -21,7 +21,7 @@ pub async fn connect_to_server() -> Result<WsStream, Box<dyn Error>> {
 pub async fn handle_websocket<B: Backend>(
     app: &mut App,
     terminal: &mut Terminal<B>,
-    write: &mut futures_util::stream::SplitSink<WsStream, Message>,
+    _write: &mut futures_util::stream::SplitSink<WsStream, Message>,
     read: &mut futures_util::stream::SplitStream<WsStream>,
 ) -> io::Result<()> {
     loop {
