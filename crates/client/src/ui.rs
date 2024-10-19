@@ -9,7 +9,7 @@ use ratatui::{
 
 pub fn ui(frame: &mut Frame, app: &mut App) {
     // Compose message scrolling management
-    let input_lines = wrap_text(&app.message_input, frame.area().width as usize - 4); // Subtracting borders
+    let input_lines = wrap_single_line(&app.message_input, frame.area().width as usize - 4); // Subtracting borders
     let max_input_height = 5; // Maximum height for input box
     let input_height = std::cmp::min(input_lines.len(), max_input_height);
 
@@ -79,7 +79,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     const KEY_HINT: &str = "(h) help";
     let header = Paragraph::new(Line::from(vec![
         Span::styled(TITLE, Style::default().fg(Color::Green)),
-        Span::raw(" ".repeat(frame.area().width as usize - TITLE.len() - KEY_HINT.len())),
+        Span::raw(" ".repeat(frame.area().width as usize - TITLE.len() - KEY_HINT.len() - 2)),
         Span::styled(KEY_HINT, Style::default().fg(Color::Red)),
     ]))
     .block(Block::default().borders(Borders::ALL));
@@ -90,54 +90,23 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     let max_width = messages_area.width.checked_sub(4).unwrap_or(0) as usize;
     let available_lines = messages_area.height as usize - 2;
 
-    let wrapped_messages = app
-        .messages
-        .iter()
-        .flat_map(|msg| {
-            if let MessageType::ChatMessage { sender, content } = msg {
-                wrap_text(&format!("{}: {}", sender, content), max_width)
-            } else {
-                vec![]
-            }
-        })
-        .collect::<Vec<String>>();
+    // Wrap messages, and calculate total lines
+    let wrapped_lines = wrap_text(&app.messages, max_width, app.username.as_deref());
+    let total_lines = wrapped_lines.len();
 
-    let start_line = wrapped_messages
-        .len()
-        .saturating_sub(available_lines + app.scroll_offset);
+    // Calculate starting line based on the scroll offset and total lines
+    let start_line = total_lines
+        .saturating_sub(available_lines)
+        .saturating_sub(app.scroll_offset);
 
-    let visible_lines = app
-        .messages
-        .iter()
+    // Render the visible lines
+    let visible_lines = wrapped_lines
+        .into_iter()
         .skip(start_line)
         .take(available_lines)
-        .map(|msg| {
-            match msg {
-                MessageType::ChatMessage { sender, content } => {
-                    let alignment = if Some(sender) == app.username.as_ref() {
-                        // Align to the right if the message is from the current user
-                        let padding = " ".repeat(max_width.checked_sub(content.len()).unwrap_or(0));
-                        ListItem::new(Span::styled(
-                            format!("{}{}", padding, content),
-                            Style::default().fg(Color::Cyan),
-                        ))
-                    } else {
-                        // Align to the left for other users
-                        ListItem::new(Span::styled(
-                            format!("{}: {}", sender, content),
-                            Style::default().fg(Color::Green),
-                        ))
-                    };
-                    Some(alignment)
-                }
-                MessageType::SystemMessage(system_message) => Some(ListItem::new(Span::styled(
-                    system_message.to_string(),
-                    Style::default().fg(Color::Yellow),
-                ))),
-                _ => None,
-            }
+        .map(|line| {
+            ListItem::new(line) // The line is already a Span with styling
         })
-        .filter_map(|x| x)
         .collect::<Vec<ListItem>>();
 
     let list = List::new(visible_lines).block(Block::default().borders(Borders::ALL));
@@ -235,24 +204,72 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
-// Helper to wrap text
-fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+fn wrap_text(
+    messages: &[MessageType],
+    max_width: usize,
+    current_username: Option<&str>,
+) -> Vec<Span<'static>> {
     let mut lines = Vec::new();
-    for line in text.split('\n') {
+
+    for message in messages {
+        match message {
+            MessageType::ChatMessage { sender, content } => {
+                let wrapped_lines = wrap_single_line(content, max_width);
+                if Some(sender.as_str()) == current_username {
+                    // Right-align the current user's messages with Cyan color
+                    for line in wrapped_lines {
+                        let padding = " ".repeat(max_width.saturating_sub(line.len()));
+                        lines.push(Span::styled(
+                            format!("{}{}", padding, line),
+                            Style::default().fg(Color::Cyan),
+                        ));
+                    }
+                } else {
+                    // Left-align other users' messages with Green color
+                    for line in wrapped_lines {
+                        lines.push(Span::styled(
+                            format!("{}: {}", sender, line),
+                            Style::default().fg(Color::Green),
+                        ));
+                    }
+                }
+            }
+            MessageType::SystemMessage(system_message) => {
+                let wrapped_lines = wrap_single_line(system_message, max_width);
+                for line in wrapped_lines {
+                    lines.push(Span::styled(line, Style::default().fg(Color::Yellow)));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    lines
+}
+
+// Helper function to wrap a single line of text
+fn wrap_single_line(line: &str, max_width: usize) -> Vec<String> {
+    let mut wrapped_lines = Vec::new();
+
+    for line in line.split('\n') {
         let words = line.split_whitespace();
         let mut new_line = String::new();
+
         for word in words {
             if new_line.len() + word.len() > max_width {
-                lines.push(new_line);
-                new_line = String::from(word);
-            } else {
-                if !new_line.is_empty() {
-                    new_line.push(' ');
-                }
-                new_line.push_str(word);
+                wrapped_lines.push(new_line.trim().to_string());
+                new_line.clear();
             }
+
+            if !new_line.is_empty() {
+                new_line.push(' ');
+            }
+
+            new_line.push_str(word);
         }
-        lines.push(new_line);
+
+        wrapped_lines.push(new_line.trim().to_string());
     }
-    lines
+
+    wrapped_lines
 }
