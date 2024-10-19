@@ -116,13 +116,9 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                 MessageType::ChatMessage { sender, content } => {
                     let alignment = if Some(sender) == app.username.as_ref() {
                         // Align to the right if the message is from the current user
-                        let padding = " ".repeat(
-                            max_width
-                                .checked_sub(content.len() + sender.len() + 2)
-                                .unwrap_or(0),
-                        );
+                        let padding = " ".repeat(max_width.checked_sub(content.len()).unwrap_or(0));
                         ListItem::new(Span::styled(
-                            format!("{}{}: {}", padding, sender, content),
+                            format!("{}{}", padding, content),
                             Style::default().fg(Color::Cyan),
                         ))
                     } else {
