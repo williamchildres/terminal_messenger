@@ -27,62 +27,11 @@ use crate::ui::ui;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let args: Vec<String> = std::env::args().collect();
 
-    if args.len() > 1 && args[1] == "/tui" {
-        if let Err(e) = launch_tui().await {
-            eprintln!("Error launching TUI: {:?}", e);
-        }
-        return;
+    if let Err(e) = launch_tui().await {
+        eprintln!("Error launching TUI: {:?}", e);
     }
-    loop {
-        match connect_to_server().await {
-            Ok(ws_stream) => {
-                println!("Connected to the server");
-
-                // Split the WebSocket stream into a writer and reader part
-                let (mut write, mut read) = ws_stream.split();
-
-                // Prepare for reading input from terminal (std input)
-                let stdin = BufReader::new(io::stdin());
-
-                // Spawn a task for reading WebSocket messages
-                let read_ws = tokio::spawn(async move {
-                    while let Some(Ok(Message::Text(text))) = read.next().await {
-                        println!("Received: {}", text);
-                    }
-                });
-
-                // Spawn another task for reading lines from terminal and sending them over WebSocket
-                let write_ws = tokio::spawn(async move {
-                    let mut lines = stdin.lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if let Err(e) = write.send(Message::Text(line)).await {
-                            eprintln!("Failed to send message: {:?}", e);
-                            break;
-                        }
-                    }
-                });
-
-                // Wait until either read or write task is done
-                tokio::select! {
-                    _ = read_ws => (),
-                    _ = write_ws => (),
-                }
-
-                // Reconnection attempt failed, wait for some time before trying again
-                println!("Disconnected from the server. Attempting to reconnect...");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            Err(e) => {
-                log::error!("Failed to connect: {:?}", e);
-
-                // Connection failed, wait for some time before trying again
-                println!("Failed to connect. Retrying in 5 seconds...");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        }
-    }
+    return;
 }
 
 async fn launch_tui() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,8 +1,6 @@
 //  This file contains functions related to handling WebSocket connections.
 //  It includes a function for starting the WebSocket task,
 //  handling individual connections, and processing incoming and outgoing messages.
-//
-//  Author: William Childres
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -16,7 +14,11 @@ use uuid::Uuid; //  unique IDs for users
 use crate::app::{App, MessageType};
 use crate::commander::command_handler::handle_command;
 
-pub async fn websocket_task(addr:SocketAddr, app: Arc<Mutex<App>>, shutdown: broadcast::Sender<()>) {
+pub async fn websocket_task(
+    addr: SocketAddr,
+    app: Arc<Mutex<App>>,
+    shutdown: broadcast::Sender<()>,
+) {
     let listener = TcpListener::bind(addr).await.expect("Failed to bind");
     println!("Server listening on {}", addr.to_string());
 

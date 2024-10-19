@@ -1,6 +1,5 @@
 //  This file contains functions related to handling commands from clients. It includes a function
 //  for handling commands and sending messages to clients.
-//  Author: William Childres
 pub mod command_handler {
     use crate::app::{App, MessageType};
     use std::collections::HashMap;
