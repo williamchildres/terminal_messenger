@@ -214,6 +214,9 @@ async fn run_app<B: Backend>(
                                         if let Err(e) = write.send(Message::Text(serde_json::to_string(&auth_message).unwrap())).await {
                                             log::error!("Failed to send authentication: {:?}", e);
                                         }
+                                         // Set client side username here
+                                        //app.username = Some(username.to_string());
+                                        app.staging_username = Some(username.to_string());
                                     }
                                     // Switch back to prompting for a username
                                     app.username = None;

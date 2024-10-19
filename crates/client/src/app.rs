@@ -27,7 +27,8 @@ pub enum MessageType {
 }
 
 pub struct App {
-    pub username: Option<String>,      // Keep track of username
+    pub username: Option<String>, // Keep track of username
+    pub staging_username: Option<String>,
     pub password: Option<String>,      // Password field for login
     pub message_input: String,         // the currently being edited message value.
     pub current_screen: CurrentScreen, // the current screen the user is looking at, and will later determine what is rendered.
@@ -41,6 +42,7 @@ impl App {
     pub fn new() -> App {
         App {
             username: None, // Start without a username
+            staging_username: None,
             password: None, // Start without a password
             message_input: String::new(),
             current_screen: CurrentScreen::Main,
@@ -68,6 +70,7 @@ impl App {
                         ));
                         self.current_screen = CurrentScreen::Main;
                         self.failed_login_attempts = 0; // Reset failed attempts on success
+                        self.username = self.staging_username.clone();
                     } else if system_message.contains("Authentication failed") {
                         self.failed_login_attempts += 1; // Increment failed attempts
                         let remaining_attempts = 5 - self.failed_login_attempts;
