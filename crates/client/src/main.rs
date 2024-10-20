@@ -1,3 +1,4 @@
+use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
@@ -19,7 +20,7 @@ use url::Url;
 mod app;
 mod ui;
 mod websocket;
-use crate::app::{App, Command, CurrentScreen, MessageType};
+use crate::app::{App, Command, CurrentScreen, LoginField, MessageType};
 use crate::ui::ui;
 use websocket::{connect_to_server, handle_websocket};
 
@@ -136,6 +137,11 @@ async fn run_app<B: Backend>(
                                 break Ok(false);
                             }
                         }
+                        CurrentScreen::ExitingLoggingIn => {
+                            if handle_exiting_logging_in_input(key.code, app).await? {
+                                break Ok(false);
+                            }
+                        }
                         CurrentScreen::Disconnected =>  handle_disconnected_input(key.code, app, terminal, &mut write, &mut read).await?,
 
                                             }
@@ -151,47 +157,104 @@ async fn run_app<B: Backend>(
 async fn handle_login_input(
     key: KeyCode,
     app: &mut App,
-    write: &mut futures_util::stream::SplitSink<websocket::WsStream, Message>,
+    write: &mut SplitSink<websocket::WsStream, Message>,
 ) -> io::Result<()> {
-    match key {
-        KeyCode::Enter => {
-            // First, set username, then prompt for password
-            if app.username.is_none() {
-                app.username = Some(app.message_input.clone());
-                app.message_input.clear(); // Clear input for password entry
-                app.messages.push(MessageType::SystemMessage(
-                    "Enter your password:".to_string(),
-                ));
-            } else {
-                // Set password and try to authenticate
-                app.password = Some(app.message_input.clone());
-                app.message_input.clear();
+    // Handle input based on whether the user is typing
+    if app.is_typing {
+        match key {
+            // Submit the field after typing
+            KeyCode::Enter => {
+                match app.current_login_field {
+                    LoginField::Username => {
+                        if !app.message_input.is_empty() {
+                            app.username = Some(app.message_input.clone());
+                            app.message_input.clear(); // Clear for password input
+                            app.current_login_field = LoginField::Password; // Move to password field
+                            app.is_typing = false; // Stop typing until the user hits Enter again
+                            app.messages.push(MessageType::SystemMessage(
+                                "Enter your password:".to_string(),
+                            ));
+                        }
+                    }
+                    LoginField::Password => {
+                        if !app.message_input.is_empty() {
+                            app.password = Some(app.message_input.clone());
+                            app.message_input.clear();
 
-                // Send authentication request
-                if let (Some(username), Some(password)) = (&app.username, &app.password) {
-                    let auth_message =
-                        MessageType::SystemMessage(format!("{}:{}", username, password));
-                    write
-                        .send(Message::Text(serde_json::to_string(&auth_message).unwrap()))
-                        .await
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                            // If both fields are filled, submit the login request
+                            if let (Some(username), Some(password)) = (&app.username, &app.password)
+                            {
+                                let auth_message = MessageType::SystemMessage(format!(
+                                    "{}:{}",
+                                    username, password
+                                ));
+                                write
+                                    .send(Message::Text(
+                                        serde_json::to_string(&auth_message).unwrap(),
+                                    ))
+                                    .await
+                                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-                    // Store username as staging and reset to allow retry if needed
-                    app.staging_username = Some(username.clone());
+                                // Store username as staging and reset for a retry if needed
+                                app.staging_username = Some(username.clone());
+                            }
+
+                            // Reset after submission
+                            app.username = None;
+                            app.password = None;
+                            app.current_login_field = LoginField::Username; // Reset to username field
+                            app.is_typing = false; // Stop typing
+                        }
+                    }
                 }
-
-                // Reset username to allow retry
-                app.username = None;
             }
+
+            // Handle Backspace key press only when typing
+            KeyCode::Backspace => {
+                if !app.message_input.is_empty() {
+                    app.message_input.pop();
+                }
+            }
+
+            // Handle character input while typing
+            KeyCode::Char(c) => {
+                app.message_input.push(c);
+            }
+
+            // Handle Esc key press to stop typing
+            KeyCode::Esc => {
+                // Stop typing when the user presses Esc
+                app.is_typing = false;
+            }
+
+            _ => {}
         }
-        KeyCode::Backspace => {
-            app.message_input.pop();
+    } else {
+        // When not typing, handle navigation and quitting
+        match key {
+            // Start typing when Enter is pressed
+            KeyCode::Enter => {
+                app.is_typing = true;
+            }
+
+            // Switch between fields using Tab
+            KeyCode::Tab => {
+                app.current_login_field = match app.current_login_field {
+                    LoginField::Username => LoginField::Password,
+                    LoginField::Password => LoginField::Username,
+                };
+            }
+
+            // Quit the application with 'q' when not typing
+            KeyCode::Char('q') => {
+                // Set screen to Exiting
+                app.current_screen = CurrentScreen::ExitingLoggingIn;
+            }
+
+            _ => {}
         }
-        KeyCode::Char(c) => {
-            app.message_input.push(c);
-        }
-        _ => {}
     }
+
     Ok(())
 }
 
@@ -377,6 +440,19 @@ async fn handle_exiting_input(key: KeyCode, app: &mut App) -> io::Result<bool> {
         }
         KeyCode::Char('n') | KeyCode::Char('q') => {
             app.current_screen = CurrentScreen::Main;
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+async fn handle_exiting_logging_in_input(key: KeyCode, app: &mut App) -> io::Result<bool> {
+    match key {
+        KeyCode::Char('y') => {
+            return Ok(true); // Exit the app
+        }
+        KeyCode::Char('n') | KeyCode::Char('q') => {
+            app.current_screen = CurrentScreen::LoggingIn;
         }
         _ => {}
     }

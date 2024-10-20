@@ -9,6 +9,7 @@ pub enum CurrentScreen {
     Exiting,
     Disconnected,
     LoggingIn,
+    ExitingLoggingIn,
 }
 
 pub enum Command {
@@ -17,6 +18,11 @@ pub enum Command {
     DirectMessage(String, String), // recipient, message
     Help,
     Unknown(String),
+}
+
+pub enum LoginField {
+    Username,
+    Password,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -35,7 +41,9 @@ pub struct App {
     pub messages: Vec<MessageType>,
     pub scroll_offset: usize,
     pub compose_scroll_offset: usize,
-    pub failed_login_attempts: u8, // keep track of failed logins
+    pub failed_login_attempts: u8,       // keep track of failed logins
+    pub current_login_field: LoginField, // track current input on login
+    pub is_typing: bool,                 // track if user is typing
 }
 
 impl App {
@@ -50,6 +58,8 @@ impl App {
             scroll_offset: 0,
             compose_scroll_offset: 0,
             failed_login_attempts: 0,
+            current_login_field: LoginField::Username, // Default value
+            is_typing: false,
         }
     }
 
