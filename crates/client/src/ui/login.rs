@@ -1,6 +1,5 @@
 // ui/login.rs
 use crate::app::{App, LoginField, MessageType};
-use crate::ui::utils::centered_rect;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Position},
     widgets::{Block, Borders, Paragraph, Wrap},

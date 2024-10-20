@@ -13,9 +13,7 @@ use std::io as err_io;
 use tokio::io::{self};
 use tokio::select;
 use tokio::sync::mpsc;
-use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use url::Url;
 
 mod app;
 mod ui;
@@ -90,14 +88,14 @@ async fn run_app<B: Backend>(
         .draw(|f| ui(f, app))
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    // Specify the server URL to connect to
-    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap();
-    // ws://127.0.0.1:8080
-
-    // Establish a WebSocket connection with the server
-    let (ws_stream, _) = connect_async(server_url)
-        .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    // Establish Connection to the server
+    let ws_stream = match connect_to_server().await {
+        Ok(ws_stream) => ws_stream,
+        Err(error) => {
+            eprintln!("Failed to connect: {}", error);
+            return Ok(false);
+        }
+    };
 
     let (mut write, mut read) = ws_stream.split();
 

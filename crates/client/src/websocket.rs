@@ -12,7 +12,9 @@ pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 // Connect to the server and return the WebSocket stream
 pub async fn connect_to_server() -> Result<WsStream, Box<dyn Error>> {
-    let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901")?;
+    //  let server_url = Url::parse("ws://autorack.proxy.rlwy.net:55901")?;
+    let server_url = Url::parse("ws://0.0.0.0:8080")?;
+
     let (ws_stream, _) = connect_async(server_url).await?;
     Ok(ws_stream)
 }
