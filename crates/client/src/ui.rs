@@ -6,6 +6,7 @@ mod disconnected;
 mod exiting;
 mod help;
 mod login;
+mod server_selection;
 mod set_user;
 mod utils;
 
@@ -17,6 +18,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         CurrentScreen::Exiting | CurrentScreen::ExitingLoggingIn => exiting::render_exiting(frame),
         CurrentScreen::Disconnected => disconnected::render_disconnected(frame),
         CurrentScreen::SetUser => set_user::render_set_user(frame, app),
-        // _ => {} // Handle other screens if needed
+        CurrentScreen::ServerSelection => server_selection::render_server_selection(frame, app), // Route for the server selection screen
+                                                                                                 // _ => {} // Handle other screens if needed
     }
 }
