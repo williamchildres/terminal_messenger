@@ -1,5 +1,9 @@
+use rodio::{source, Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use url::Url;
 
 pub enum CurrentScreen {
@@ -48,6 +52,8 @@ pub struct App {
     pub is_typing: bool,                 // track if user is typing
     pub servers: HashMap<String, Url>,   // storing servers
     pub selected_server: Option<String>, // Track the selected server
+    sound_sink: Sink,
+    sound_path: PathBuf,
 }
 
 impl App {
@@ -62,6 +68,16 @@ impl App {
             Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap(),
         );
         let selected_server = Some("default".to_string());
+        // Initialize rodio components
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+
+        // Assume sound file is stored in `assets/sounds/`
+        let exe_path = std::env::current_exe().expect("Failed to get current exe path");
+        let assets_path = exe_path
+            .parent()
+            .unwrap()
+            .join("assets/sounds/system-notification-199277.mp3");
 
         App {
             username: None, // Start without a username
@@ -77,7 +93,32 @@ impl App {
             is_typing: false,
             servers,
             selected_server,
+            sound_sink: sink,
+            sound_path: assets_path,
         }
+    }
+
+    // Play sound asynchronously when a new message arrives
+    pub fn play_notification_sound(&self) {
+        let sound_path = self.sound_path.clone(); // Clone the path for the closure
+
+        // Spawn a new blocking task to play sound
+        tokio::task::spawn_blocking(move || {
+            // Create a new output stream and sink for playing the sound
+            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+            let sink = Sink::try_new(&stream_handle).unwrap();
+
+            // Open and decode the sound file
+            let file = File::open(sound_path).expect("Failed to open sound file");
+            let reader = BufReader::new(file);
+            let source = Decoder::new(reader).unwrap();
+
+            // Play the sound
+            sink.append(source);
+            sink.play();
+            sink.sleep_until_end(); // Wait until the sound finishes playing
+                                    //println!("Notification sound played.");
+        });
     }
 
     // Handling incoming WebSocket messages from the server
@@ -88,6 +129,7 @@ impl App {
                     // Push the chat message into `self.messages`
                     self.messages
                         .push(MessageType::ChatMessage { sender, content });
+                    self.play_notification_sound(); // Play sound on new chat message
                 }
                 MessageType::SystemMessage(system_message) => {
                     if system_message.contains("Authentication successful") {
@@ -130,7 +172,6 @@ impl App {
 
         self.scroll_offset = 0;
     }
-
     // Methods for scrolling up and down in main chat
     pub fn scroll_up(&mut self) {
         self.scroll_offset = self.scroll_offset.saturating_add(1);

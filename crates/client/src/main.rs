@@ -21,11 +21,33 @@ mod ui;
 mod websocket;
 use crate::app::{App, Command, CurrentScreen, LoginField, MessageType};
 use crate::ui::ui;
+use rodio::{Decoder, OutputStream, Sink};
+use std::fs::File;
+use std::io::BufReader;
 use websocket::{connect_to_server, handle_websocket};
-
 #[tokio::main]
 async fn main() {
     env_logger::init();
+
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let sink = Sink::try_new(&stream_handle).unwrap();
+
+    let exe_path = std::env::current_exe().expect("Failed to get current exe path");
+    let assets_path = exe_path
+        .parent()
+        .unwrap()
+        .join("assets/sounds/system-notification-199277.mp3");
+    //assets_path.join("mixkit-electric-buzz-glitch-2594.wav")
+
+    let file = File::open(&assets_path).unwrap();
+    let reader = BufReader::new(file);
+    let source = Decoder::new(reader).unwrap();
+
+    sink.append(source);
+    sink.play();
+    println!("Sound should be playing...");
+
+    sink.sleep_until_end(); // Block until the sound has finished playing
 
     if let Err(e) = launch_tui().await {
         eprintln!("Error launching TUI: {:?}", e);
@@ -143,6 +165,7 @@ async fn run_app<B: Backend>(
 
                         // Handle other screens only if WebSocket streams are initialized
                         CurrentScreen::LoggingIn => {
+
                             if let Some(ref mut write_stream) = write {
                                 handle_login_input(key.code, app, write_stream).await?;
                             }
@@ -192,7 +215,7 @@ async fn handle_server_selection_input(
 ) -> io::Result<bool> {
     match key {
         KeyCode::Enter => {
-            if let Some(selected_server) = app.servers.get(&app.message_input) {
+            if let Some(_selected_server) = app.servers.get(&app.message_input) {
                 // Disconnect the current WebSocket streams
                 *write = None;
                 *read = None;
@@ -238,7 +261,20 @@ async fn handle_server_selection_input(
             app.message_input.push(c); // Add character to input
         }
         KeyCode::Esc => {
-            app.message_input.clear(); // Clear input and stay on the same screen
+            if write.is_some() && read.is_some() {
+                // Check if there is an active server connection
+                app.current_screen = CurrentScreen::Main; // Transition to the main screen
+                app.message_input.clear(); // Clear any input
+
+                terminal
+                    .draw(|f| ui(f, app))
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+                return Ok(true);
+            } else {
+                // If no active connection exists, clear input and stay on server selection screen
+                app.message_input.clear();
+            }
         }
         _ => {}
     }

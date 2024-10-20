@@ -13,7 +13,8 @@ pub async fn connect_to_server(
 ) -> Result<WsStream, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(server_name) = &app.selected_server {
         if let Some(server_url) = app.servers.get(server_name) {
-            let (ws_stream, _) = connect_async(server_url.clone()).await?;
+            let url_string = server_url.to_string();
+            let (ws_stream, _) = connect_async(&url_string).await?;
             return Ok(ws_stream);
         }
     }
@@ -27,8 +28,13 @@ pub async fn connect_to_server(
 pub async fn handle_websocket<B: Backend>(
     app: &mut App,
     terminal: &mut Terminal<B>,
-    _write: &mut futures_util::stream::SplitSink<WsStream, Message>,
-    read: &mut futures_util::stream::SplitStream<WsStream>,
+    _write: &mut futures_util::stream::SplitSink<
+        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+        Message,
+    >,
+    read: &mut futures_util::stream::SplitStream<
+        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+    >,
 ) -> io::Result<()> {
     loop {
         tokio::select! {
@@ -36,6 +42,7 @@ pub async fn handle_websocket<B: Backend>(
                 if let Some(Ok(Message::Text(text))) = ws_msg {
                     app.handle_websocket_message(&text);
 
+                    // Redraw the terminal to reflect the new messages
                     terminal.draw(|f| crate::ui::ui(f, app))
                         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 } else if let Some(Ok(Message::Close(_))) = ws_msg {
