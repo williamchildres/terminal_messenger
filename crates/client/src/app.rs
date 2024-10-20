@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use url::Url;
 
 pub enum CurrentScreen {
@@ -54,6 +55,7 @@ pub struct App {
     pub selected_server: Option<String>, // Track the selected server
     sound_sink: Sink,
     sound_path: PathBuf,
+    last_notification_time: Option<Instant>,
 }
 
 impl App {
@@ -95,6 +97,7 @@ impl App {
             selected_server,
             sound_sink: sink,
             sound_path: assets_path,
+            last_notification_time: None,
         }
     }
 
@@ -129,7 +132,15 @@ impl App {
                     // Push the chat message into `self.messages`
                     self.messages
                         .push(MessageType::ChatMessage { sender, content });
-                    self.play_notification_sound(); // Play sound on new chat message
+                    // Only play sound if there hasn't been a notification within the last 1 seconds
+                    if self
+                        .last_notification_time
+                        .map(|t| t.elapsed().as_secs() > 1)
+                        .unwrap_or(true)
+                    {
+                        self.play_notification_sound(); // Play sound on new chat message
+                        self.last_notification_time = Some(Instant::now()); // Update time of last notification
+                    }
                 }
                 MessageType::SystemMessage(system_message) => {
                     if system_message.contains("Authentication successful") {
