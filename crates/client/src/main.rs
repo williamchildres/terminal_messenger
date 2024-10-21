@@ -20,10 +20,9 @@ mod app;
 mod ui;
 mod websocket;
 use crate::app::{App, Command, CurrentScreen, LoginField, MessageType};
-use crate::event::MouseEvent;
-use crate::event::MouseEventKind;
 use crate::ui::ui;
 use websocket::{connect_to_server, handle_websocket};
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -35,7 +34,7 @@ async fn main() {
 }
 
 async fn launch_tui() -> Result<(), Box<dyn std::error::Error>> {
-    // setup terminal
+    // Setup terminal
     enable_raw_mode().map_err(Box::new)?;
     let mut stdout = err_io::stderr();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -123,23 +122,29 @@ async fn run_app<B: Backend>(
                     match app.current_screen {
                         CurrentScreen::ServerSelection => {
                             // Handle server selection input, and connect to the selected server afterward
-                           if handle_server_selection_input(key.code, app, &mut write, &mut read, terminal).await? {
+                            if handle_server_selection_input(key.code, app, &mut write, &mut read, terminal).await? {
                                 // After the user selects a server, attempt to connect
-
+                                // Server connection logic is handled in handle_server_selection_input
                             }
                         }
                         CurrentScreen::AddServer => {
-                           handle_add_server_input(key.code, app).await?;
+                            handle_add_server_input(key.code, app).await?;
                         }
 
                         // Handle other screens only if WebSocket streams are initialized
                         CurrentScreen::LoggingIn => {
-
                             if let Some(ref mut write_stream) = write {
                                 handle_login_input(key.code, app, write_stream).await?;
                             }
                         }
-                        CurrentScreen::Main => handle_main_input(key.code, app).await,
+                        CurrentScreen::Main => {
+                            handle_main_input(key.code, app).await;
+
+                            // Play notification sound when a new message arrives
+                            if app.should_play_notification() {
+                                app.play_notification_sound();
+                            }
+                        }
                         CurrentScreen::ComposingMessage => {
                             if let Some(ref mut write_stream) = write {
                                 handle_composing_message_input(key.code, app, write_stream).await?;
@@ -150,7 +155,9 @@ async fn run_app<B: Backend>(
                                 handle_set_user_input(key.code, app, write_stream).await?;
                             }
                         }
-                        CurrentScreen::HelpMenu => handle_help_menu_input(key.code, app).await?,
+                        CurrentScreen::HelpMenu => {
+                            handle_help_menu_input(key.code, app).await?;
+                        }
                         CurrentScreen::Exiting => {
                             if handle_exiting_input(key.code, app).await? {
                                 break Ok(false);
@@ -162,7 +169,7 @@ async fn run_app<B: Backend>(
                             }
                         }
                         CurrentScreen::Disconnected => {
-                                handle_disconnected_input(key.code, app, terminal, &mut write, &mut read).await?;
+                            handle_disconnected_input(key.code, app, terminal, &mut write, &mut read).await?;
                         }
                     }
 
