@@ -20,6 +20,8 @@ mod app;
 mod ui;
 mod websocket;
 use crate::app::{App, Command, CurrentScreen, LoginField, MessageType};
+use crate::event::MouseEvent;
+use crate::event::MouseEventKind;
 use crate::ui::ui;
 use websocket::{connect_to_server, handle_websocket};
 #[tokio::main]
@@ -527,11 +529,11 @@ async fn handle_composing_message_input(
             app.current_screen = CurrentScreen::Main;
             return Ok(());
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::PageUp => {
             app.compose_scroll_up();
             return Ok(());
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::PageDown => {
             app.compose_scroll_down();
             return Ok(());
         }
@@ -546,6 +548,7 @@ async fn handle_composing_message_input(
         KeyCode::Char(c) => app.message_input.push(c),
         _ => {}
     }
+
     Ok(())
 }
 

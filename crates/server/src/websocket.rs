@@ -330,7 +330,9 @@ async fn handle_incoming_message(
             let disconnected_clients: Vec<String> = clients_lock
                 .iter()
                 .filter_map(|(id, tx)| {
-                    if tx.send(broadcast_message.clone()).is_err() {
+                    if id == client_id {
+                        None // prevent sending back to yourself
+                    } else if tx.send(broadcast_message.clone()).is_err() {
                         // If sending fails, mark this client as disconnected
                         Some(id.clone())
                     } else {
