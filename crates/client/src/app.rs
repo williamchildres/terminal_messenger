@@ -1,10 +1,10 @@
-use rodio::{source, Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Instant;
 use url::Url;
 
 pub enum CurrentScreen {
@@ -17,6 +17,7 @@ pub enum CurrentScreen {
     LoggingIn,
     ExitingLoggingIn,
     ServerSelection,
+    AddServer,
 }
 
 pub enum Command {
@@ -53,6 +54,7 @@ pub struct App {
     pub is_typing: bool,                 // track if user is typing
     pub servers: HashMap<String, Url>,   // storing servers
     pub selected_server: Option<String>, // Track the selected server
+    pub selected_server_index: usize,
     sound_sink: Sink,
     sound_path: PathBuf,
     last_notification_time: Option<Instant>,
@@ -70,6 +72,7 @@ impl App {
             Url::parse("ws://autorack.proxy.rlwy.net:55901").unwrap(),
         );
         let selected_server = Some("default".to_string());
+        let selected_server_index = 1;
         // Initialize rodio components
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
@@ -95,6 +98,7 @@ impl App {
             is_typing: false,
             servers,
             selected_server,
+            selected_server_index,
             sound_sink: sink,
             sound_path: assets_path,
             last_notification_time: None,

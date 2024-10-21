@@ -1,6 +1,7 @@
 use crate::app::{App, CurrentScreen};
 use ratatui::Frame;
 
+mod add_server;
 mod chat;
 mod disconnected;
 mod exiting;
@@ -19,6 +20,6 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         CurrentScreen::Disconnected => disconnected::render_disconnected(frame),
         CurrentScreen::SetUser => set_user::render_set_user(frame, app),
         CurrentScreen::ServerSelection => server_selection::render_server_selection(frame, app), // Route for the server selection screen
-                                                                                                 // _ => {} // Handle other screens if needed
+        CurrentScreen::AddServer => add_server::render_add_server(frame, app), // _ => {} // Handle other screens if needed
     }
 }
