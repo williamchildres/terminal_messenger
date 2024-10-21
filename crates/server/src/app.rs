@@ -52,6 +52,20 @@ impl App {
                 password: "password2".to_string(),
             },
         );
+        user_credentials.insert(
+            "William".to_string(),
+            UserCredentials {
+                username: "William".to_string(),
+                password: "password".to_string(),
+            },
+        );
+        user_credentials.insert(
+            "PickleRick".to_string(),
+            UserCredentials {
+                username: "PickleRick".to_string(),
+                password: "password".to_string(),
+            },
+        );
 
         App {
             connected_users: HashMap::new(),
@@ -69,13 +83,28 @@ impl App {
     }
 
     // Add a connected user by UUID
-    pub async fn add_connected_user(&mut self, user_id: String, username: String) {
+    pub async fn add_connected_user(
+        &mut self,
+        user_id: String,
+        username: String,
+    ) -> Result<(), String> {
+        // Check if user with same username is already connected
+        for value in self.connected_users.values() {
+            let data = value.lock().await;
+            if data.username == username {
+                return Err(format!("The User {} is already connected", username));
+            }
+        }
+
         let user_info = Arc::new(Mutex::new(UserInfo {
             username,
             connection_time: SystemTime::now(),
             message_count: 0,
         }));
+
         self.connected_users.insert(user_id.clone(), user_info);
+
+        Ok(())
     }
 
     // Retrieve a connected user by UUID

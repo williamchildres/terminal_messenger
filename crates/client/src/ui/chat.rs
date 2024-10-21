@@ -38,7 +38,7 @@ pub fn render_chat(frame: &mut Frame, app: &mut App) {
 
     // Header block (Title and Help)
     let server_title = match &app.selected_server {
-        Some(server) => format!("TUI Messenger ({})", server),
+        Some(server) => format!("Server: {}", server),
         None => "TUI Messenger".to_string(),
     };
     const KEY_HINT: &str = "(h) help";

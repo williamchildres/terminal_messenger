@@ -88,12 +88,21 @@ async fn handle_connection(
                     if is_authenticated {
                         authenticated = true;
 
-                        // Add the user to the App with authenticated username
-                        app.lock()
+                        let result = app
+                            .lock()
                             .await
-                            .add_connected_user(client_id.clone(), username.to_string())
+                            .add_connected_user(client_id.clone(), creds[0].to_string())
                             .await;
-
+                        match result {
+                            Ok(_) => {
+                                // User added successfully
+                            }
+                            Err(err_msg) => {
+                                // Send error message to client and close connection.
+                                println!("{}", err_msg);
+                                return;
+                            }
+                        }
                         let success_message =
                             MessageType::SystemMessage("Authentication successful".to_string());
                         tx_original.send(success_message).unwrap();
