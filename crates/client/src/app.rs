@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use url::Url;
 
@@ -56,7 +55,7 @@ pub struct App {
     pub servers: HashMap<String, Url>,   // storing servers
     pub selected_server: Option<String>, // Track the selected server
     pub selected_server_index: usize,
-    sound_sink: Arc<Mutex<Sink>>,
+    sound_sink: Sink,
     sound_path: PathBuf,
     last_notification_time: Option<Instant>,
 }
@@ -74,7 +73,6 @@ impl App {
         );
         let selected_server = Some("default".to_string());
         let selected_server_index = 1;
-
         // Initialize rodio components
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
@@ -87,41 +85,35 @@ impl App {
             .join("assets/sounds/system-notification-199277.mp3");
 
         App {
-            username: None,
+            username: None, // Start without a username
             staging_username: None,
-            password: None,
+            password: None, // Start without a password
             message_input: String::new(),
             current_screen: CurrentScreen::Main,
             messages: Vec::<MessageType>::new(),
             scroll_offset: 0,
             compose_scroll_offset: 0,
             failed_login_attempts: 0,
-            current_login_field: LoginField::Username,
+            current_login_field: LoginField::Username, // Default value
             is_typing: false,
             servers,
             selected_server,
             selected_server_index,
-            sound_sink: Arc::new(Mutex::new(sink)), // Use Arc<Mutex<Sink>>
+            sound_sink: sink,
             sound_path: assets_path,
             last_notification_time: None,
         }
     }
-    pub fn should_play_notification(&self) -> bool {
-        self.last_notification_time
-            .map(|t| t.elapsed().as_secs() > 1)
-            .unwrap_or(true)
-    }
 
-    // Modify play_notification_sound to avoid the borrowing issue
     // Play sound asynchronously when a new message arrives
     pub fn play_notification_sound(&self) {
         let sound_path = self.sound_path.clone(); // Clone the path for the closure
-        let sink = Arc::clone(&self.sound_sink); // Clone Arc to share ownership
 
         // Spawn a new blocking task to play sound
         tokio::task::spawn_blocking(move || {
-            // Lock the sink before using it
-            let sink = sink.lock().expect("Failed to lock the sink");
+            // Create a new output stream and sink for playing the sound
+            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+            let sink = Sink::try_new(&stream_handle).unwrap();
 
             // Open and decode the sound file
             let file = File::open(sound_path).expect("Failed to open sound file");
@@ -132,6 +124,7 @@ impl App {
             sink.append(source);
             sink.play();
             sink.sleep_until_end(); // Wait until the sound finishes playing
+                                    //println!("Notification sound played.");
         });
     }
 
