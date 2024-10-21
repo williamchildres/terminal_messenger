@@ -235,6 +235,7 @@ async fn handle_server_selection_input(
                 app.username = None; // Clear any existing username
                 app.password = None; // Clear any existing password
                 app.current_login_field = LoginField::Username; // Start with the username field
+                app.is_typing = true;
 
                 terminal
                     .draw(|f| ui(f, app))
@@ -355,7 +356,6 @@ async fn handle_login_input(
                             app.username = Some(app.message_input.clone());
                             app.message_input.clear(); // Clear for password input
                             app.current_login_field = LoginField::Password; // Move to password field
-                            app.is_typing = false; // Stop typing until the user hits Enter again
                             app.messages.push(MessageType::SystemMessage(
                                 "Enter your password:".to_string(),
                             ));

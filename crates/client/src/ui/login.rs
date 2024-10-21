@@ -84,6 +84,7 @@ pub fn render_login(frame: &mut Frame, app: &mut App) {
         LoginField::Username => chunks[1].y + 1,
         LoginField::Password => chunks[2].y + 1,
     };
-
-    frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+    if app.is_typing {
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+    }
 }
