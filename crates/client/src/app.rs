@@ -78,11 +78,9 @@ impl App {
         let sink = Sink::try_new(&stream_handle).unwrap();
 
         // Assume sound file is stored in `assets/sounds/`
-        let exe_path = std::env::current_exe().expect("Failed to get current exe path");
-        let assets_path = exe_path
-            .parent()
-            .unwrap()
-            .join("assets/sounds/system-notification-199277.mp3");
+
+        let assets_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sounds/system-notification-199277.mp3");
 
         App {
             username: None, // Start without a username
