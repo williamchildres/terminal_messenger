@@ -19,7 +19,6 @@ pub struct UserInfo {
     pub username: String,
     pub connection_time: SystemTime,
     pub message_count: usize,
-    pub color: String,
 }
 
 pub struct UserCredentials {

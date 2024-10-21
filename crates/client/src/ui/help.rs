@@ -16,7 +16,7 @@ pub fn render_help(frame: &mut Frame) {
         .borders(Borders::NONE)
         .style(Style::default().bg(Color::DarkGray));
     let help_menu_text = Text::styled(
-        "(q) to quit\n(n) to set username",
+        "(q) to quit\n(n) to set username\n(s) to select server",
         Style::default().fg(Color::Red),
     );
     let help_menu_paragraph = Paragraph::new(help_menu_text)

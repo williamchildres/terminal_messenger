@@ -310,6 +310,26 @@ async fn handle_server_selection_input(
                 app.message_input.clear();
             }
         }
+        KeyCode::Tab => {
+            if let Some(selected_server) = &app.selected_server {
+                let server_names: Vec<&String> = app.servers.keys().collect();
+                let current_index = server_names
+                    .iter()
+                    .position(|name| *name == selected_server);
+
+                if let Some(index) = current_index {
+                    let next_index = (index + 1) % app.servers.len();
+                    let new_selected_server_name = server_names
+                        .get(next_index)
+                        .expect("Failed to get server name");
+                    app.selected_server = Some(new_selected_server_name.to_string());
+                } else if let Some(first_server_name) = app.servers.keys().next() {
+                    app.selected_server = Some(first_server_name.to_string());
+                }
+            } else if let Some(first_server_name) = app.servers.keys().next() {
+                app.selected_server = Some(first_server_name.to_string());
+            }
+        }
 
         _ => {}
     }

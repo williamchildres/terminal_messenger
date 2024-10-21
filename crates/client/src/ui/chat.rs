@@ -37,15 +37,18 @@ pub fn render_chat(frame: &mut Frame, app: &mut App) {
         .split(frame.area());
 
     // Header block (Title and Help)
-    const TITLE: &str = "TUI Messenger";
+    let server_title = match &app.selected_server {
+        Some(server) => format!("TUI Messenger ({})", server),
+        None => "TUI Messenger".to_string(),
+    };
     const KEY_HINT: &str = "(h) help";
     let total_width = frame.area().width as usize;
 
     // Ensure that we don't subtract too much and cause a crash
-    let space_padding = total_width.saturating_sub(TITLE.len() + KEY_HINT.len() + 2); // Avoid negative values
+    let space_padding = total_width.saturating_sub(server_title.len() + KEY_HINT.len() + 2); // Avoid negative values
 
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(TITLE, Style::default().fg(Color::Green)),
+        Span::styled(server_title, Style::default().fg(Color::Green)),
         Span::raw(" ".repeat(space_padding)), // Safely repeat spaces
         Span::styled(KEY_HINT, Style::default().fg(Color::Red)),
     ]))
