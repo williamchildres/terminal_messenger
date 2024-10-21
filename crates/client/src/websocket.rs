@@ -1,5 +1,5 @@
 use crate::app::App;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use ratatui::backend::Backend;
 use ratatui::Terminal;
 use tokio::io;
@@ -24,38 +24,55 @@ pub async fn connect_to_server(
     )))
 }
 
-// Handle WebSocket messages in a separate module
 pub async fn handle_websocket<B: Backend>(
     app: &mut App,
     terminal: &mut Terminal<B>,
-    _write: &mut futures_util::stream::SplitSink<
-        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-        Message,
-    >,
-    read: &mut futures_util::stream::SplitStream<
-        WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
-    >,
+    write: &mut futures_util::stream::SplitSink<WsStream, Message>,
+    read: &mut futures_util::stream::SplitStream<WsStream>,
 ) -> io::Result<()> {
     loop {
         tokio::select! {
             ws_msg = read.next() => {
-                if let Some(Ok(Message::Text(text))) = ws_msg {
-                    app.handle_websocket_message(&text);
-
-                    // Redraw the terminal to reflect the new messages
-                    terminal.draw(|f| crate::ui::ui(f, app))
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                } else if let Some(Ok(Message::Close(_))) = ws_msg {
-                    app.current_screen = crate::app::CurrentScreen::Disconnected;
-                    terminal.draw(|f| crate::ui::ui(f, app))
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    break;
-                } else if let Some(Err(e)) = ws_msg {
-                    app.current_screen = crate::app::CurrentScreen::Disconnected;
-                    terminal.draw(|f| crate::ui::ui(f, app))
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    log::error!("WebSocket error: {:?}", e);
-                    break;
+                match ws_msg {
+                    Some(Ok(Message::Text(text))) => {
+                        app.handle_websocket_message(&text);
+                        terminal.draw(|f| crate::ui::ui(f, app))
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    }
+                    Some(Ok(Message::Binary(_))) => {
+                        // Handle binary message if needed
+                    }
+                    Some(Ok(Message::Ping(ping))) => {
+                        // Respond to ping by sending a Pong message
+                      write.send(Message::Pong(ping)).await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        // Handle pong if necessary
+                    }
+                    Some(Ok(Message::Close(_))) => {
+                        app.current_screen = crate::app::CurrentScreen::Disconnected;
+                        terminal.draw(|f| crate::ui::ui(f, app))
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        // Log the WebSocket error and move to the Disconnected state
+                        app.current_screen = crate::app::CurrentScreen::Disconnected;
+                        terminal.draw(|f| crate::ui::ui(f, app))
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                        log::error!("WebSocket error: {:?}", e);
+                        break;
+                    }
+                    None => {
+                        // Handle the case when the stream ends
+                        app.current_screen = crate::app::CurrentScreen::Disconnected;
+                        terminal.draw(|f| crate::ui::ui(f, app))
+                            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                        break;
+                    }
+                    Some(Ok(Message::Frame(frame_data))) => {
+                        let _ = frame_data;
+                    }
                 }
             }
         }

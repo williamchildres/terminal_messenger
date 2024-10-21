@@ -569,29 +569,30 @@ async fn handle_disconnected_input(
     match key {
         KeyCode::Char('r') => {
             // Attempt to reconnect to the selected server
-            if let Ok(new_stream) = connect_to_server(app).await {
-                let (new_write, new_read) = new_stream.split();
-                *write = Some(new_write); // Update the WebSocket streams after reconnecting
+            if let Ok(ws_stream) = websocket::connect_to_server(app).await {
+                let (new_write, new_read) = ws_stream.split();
+                *write = Some(new_write);
                 *read = Some(new_read);
 
-                // Clear the terminal and return to the login screen for re-authentication
+                // Clear the terminal and force a full redraw
                 terminal.clear()?;
-                app.current_screen = CurrentScreen::LoggingIn; // Transition to the login screen
-                terminal.draw(|f| ui(f, app))?;
+                app.current_screen = CurrentScreen::Main; // Back to main screen after reconnection
+                terminal.draw(|f| crate::ui::ui(f, app))?;
             } else {
-                // Handle connection failure, push a system message to the app
+                // Handle reconnection failure, maybe push a system message to the app
                 app.messages.push(MessageType::SystemMessage(
                     "Reconnection failed. Please check the server.".to_string(),
                 ));
-                terminal.draw(|f| ui(f, app))?;
+                terminal.draw(|f| crate::ui::ui(f, app))?;
             }
         }
         KeyCode::Char('q') => {
-            // Return `Ok(false)` to signal quitting the app
-            return Ok(());
+            // Quit the app gracefully
+            std::process::exit(0);
         }
         _ => {}
     }
+
     Ok(())
 }
 
